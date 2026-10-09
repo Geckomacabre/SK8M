@@ -49,3 +49,14 @@ Thumbs.db
 
 # Python bytecode
 __pycache__/
+
+# SK8M (fivem/): the player's own game data and machine-local files
+fivem/PS3_GAME/
+fivem/skate3_assets/
+fivem/skate3-sp/tools/local_paths.json
+fivem/skate3-sp/tools/gta_ped_rig.json
+fivem/skate3-sp/tests/nativedb/
+*.ycd
+*.ogg
+*.abin
+*.big

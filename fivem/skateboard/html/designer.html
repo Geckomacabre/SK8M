@@ -1,0 +1,39 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>skate shop</title>
+<link rel="stylesheet" href="designer.css">
+</head>
+<body>
+<!-- The skate shop's board page. Every name, price, word and picture in it comes from skate3_assets at run time
+     (decks/catalog.json): this file has none of Skate 3's data. -->
+<div id="shop" class="hidden">
+  <header>
+    <h1 id="title"></h1>
+    <nav id="tabs"></nav>
+    <div id="wallet"></div>
+    <button id="close" title="Esc">&times;</button>
+  </header>
+  <main>
+    <section id="left">
+      <div id="filters"></div>
+      <div id="brands" class="hidden"></div>
+      <div id="grid" tabindex="0"></div>
+    </section>
+    <section id="right">
+      <div id="stage"><img id="big" alt=""></div>
+      <div id="info">
+        <img id="logo" alt="">
+        <div id="names"><div id="name"></div><div id="brand"></div></div>
+      </div>
+      <div id="price"></div>
+      <button id="act"></button>
+      <div id="msg"></div>
+    </section>
+  </main>
+</div>
+<div id="none" class="hidden"></div>
+<script src="designer.js"></script>
+</body>
+</html>

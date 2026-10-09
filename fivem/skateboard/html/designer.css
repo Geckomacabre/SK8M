@@ -1,0 +1,61 @@
+/* The skate shop's board page: a dark panel over the game, bold condensed capitals, one accent colour. */
+html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
+body { font-family: "Arial Narrow", "Helvetica Neue", Arial, sans-serif; color: #f2f2f2; user-select: none; }
+.hidden { display: none !important; }
+
+#shop { position: absolute; left: 4vw; top: 6vh; right: 4vw; bottom: 6vh; display: flex; flex-direction: column;
+        background: rgba(12, 12, 14, 0.94); border-top: 0.6vh solid #e8452c; box-shadow: 0 0 6vh rgba(0, 0, 0, 0.8); }
+header { display: flex; align-items: flex-end; padding: 2vh 2vw 0 2vw; border-bottom: 1px solid #2c2c31; }
+h1 { margin: 0 3vw 1.2vh 0; font-size: 4.4vh; font-weight: 900; letter-spacing: 0.08em; text-transform: uppercase; }
+#tabs { display: flex; flex: 1; }
+#tabs button, #filters button { background: none; border: 0; color: #9a9aa2; font: inherit; font-weight: 700;
+        text-transform: uppercase; letter-spacing: 0.06em; cursor: pointer; }
+#tabs button { font-size: 2.6vh; padding: 1.2vh 1.6vw; border-bottom: 0.5vh solid transparent; }
+#tabs button.on { color: #fff; border-bottom-color: #e8452c; }
+#wallet { font-size: 2.4vh; font-weight: 700; margin: 0 2vw 1.4vh 0; color: #d8d8dc; }
+#close { background: none; border: 0; color: #9a9aa2; font-size: 4vh; line-height: 1; cursor: pointer; margin-bottom: 1vh; }
+#close:hover, #tabs button:hover, #filters button:hover { color: #fff; }
+
+main { flex: 1; display: flex; min-height: 0; }
+#left { flex: 1.25; display: flex; flex-direction: column; min-width: 0; padding: 1.4vh 0 1.4vh 2vw; }
+#filters { display: flex; align-items: center; font-size: 2vh; color: #77777f; margin-bottom: 1vh; }
+#filters span { text-transform: uppercase; letter-spacing: 0.06em; margin-right: 0.8vw; }
+#filters button { font-size: 2vh; padding: 0.5vh 0.9vw; }
+#filters button.on { color: #fff; background: #e8452c; }
+#brands { display: flex; flex-wrap: wrap; margin-bottom: 1vh; max-height: 16vh; overflow-y: auto; }
+#brands button { background: #1b1b1f; border: 2px solid transparent; margin: 0 0.4vw 0.4vw 0; padding: 0.3vh; cursor: pointer;
+        width: 6.4vh; height: 6.4vh; color: #c8c8cc; font: inherit; font-size: 1.3vh; text-transform: uppercase; overflow: hidden; }
+#brands button img { width: 100%; height: 100%; object-fit: contain; }
+#brands button.on { border-color: #e8452c; }
+#grid { flex: 1; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(11.5vh, 1fr)); grid-auto-rows: 11.5vh;
+        gap: 0.7vh; padding-right: 1vw; outline: none; align-content: start; }
+#grid::-webkit-scrollbar, #brands::-webkit-scrollbar { width: 0.8vh; }
+#grid::-webkit-scrollbar-thumb, #brands::-webkit-scrollbar-thumb { background: #3a3a40; }
+.cell { position: relative; background: #1b1b1f; border: 2px solid transparent; cursor: pointer; overflow: hidden; }
+.cell img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cell.owned::after { content: ""; position: absolute; right: 0.5vh; top: 0.5vh; width: 1.1vh; height: 1.1vh; border-radius: 50%;
+        background: #f2f2f2; box-shadow: 0 0 0.4vh #000; }
+.cell.on { border-color: #fff; }
+.cell.riding { border-color: #e8452c; }
+.cell.riding::before { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 0.7vh; background: #e8452c; z-index: 1; }
+.cell.riding.on { border-color: #fff; }
+
+#right { flex: 1; display: flex; flex-direction: column; padding: 1.4vh 2vw 2vh 1.6vw; border-left: 1px solid #2c2c31; min-width: 0; }
+#stage { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center;
+        background: radial-gradient(ellipse at center, #2a2a30 0%, #101013 75%); }
+#big { max-width: 94%; max-height: 90%; }
+#big.small { width: 38vh; height: 38vh; image-rendering: -webkit-optimize-contrast; }
+#info { display: flex; align-items: center; margin-top: 1.6vh; min-height: 8vh; }
+#logo { width: 8vh; height: 8vh; object-fit: contain; margin-right: 1.2vw; }
+#name { font-size: 3.8vh; font-weight: 900; text-transform: uppercase; letter-spacing: 0.04em; line-height: 1.05; }
+#brand { font-size: 2.1vh; color: #9a9aa2; text-transform: uppercase; letter-spacing: 0.08em; }
+#price { font-size: 2.6vh; font-weight: 700; margin-top: 1.2vh; min-height: 3.2vh; }
+#price .bad { color: #ff6a55; margin-left: 1vw; }
+#act { margin-top: 1.2vh; padding: 1.5vh 0; background: #e8452c; border: 0; color: #fff; font: inherit; font-size: 2.8vh; font-weight: 900;
+        text-transform: uppercase; letter-spacing: 0.1em; cursor: pointer; }
+#act:disabled { background: #2c2c31; color: #77777f; cursor: default; }
+#msg { min-height: 5.4vh; margin-top: 1vh; font-size: 2vh; color: #ff6a55; }
+#msg b { display: block; text-transform: uppercase; letter-spacing: 0.06em; }
+
+#none { position: absolute; left: 30vw; right: 30vw; top: 40vh; padding: 3vh 2vw; background: rgba(12, 12, 14, 0.94);
+        border-top: 0.6vh solid #e8452c; font-size: 2.4vh; text-align: center; }

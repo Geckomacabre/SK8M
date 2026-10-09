@@ -49,3 +49,22 @@ Rust crates
   Each crate linked into a shipped binary keeps its own license; release
   packages list them with their license texts in THIRD-PARTY-NOTICES.txt
   (tools/third-party-notices.py).
+
+SK8M (the fivem/ folder)
+Copyright 2026 Geckomacabre
+
+SK8M is the FiveM port carried by this fork: a Lua resource, and the tools
+that convert a player's own Skate 3 data for it. It is licensed under the
+Apache License, Version 2.0 (LICENSE) and contains no GTA V or Skate 3 code
+or data. The files outside fivem/ are SK8V's; of those, only README.md,
+NOTICE and .gitignore were changed.
+
+fivem/skate3-sp/tools/s3_to_ycd.py fits the GTA skeleton onto Skate 3's with
+the method of SK8V's rust/skatev-runtime/src/ped.rs (hip placement, feet
+fitted about the vertical, the two-bone limb solve, hands placed while in
+contact), rewritten in Python for baked clips. fivem/skateboard/client.lua
+sorts GTA's ground materials after rust/skatev-runtime/src/materials.rs.
+
+Skate 3 vault field names (fivem/skate3-sp/tools/vlt/names.json)
+  Most names come from the key list published by the Skate-Modding-Team.
+  https://github.com/Skate-Modding-Team/VaultTest

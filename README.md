@@ -1,88 +1,113 @@
-![SK8V Gameplay](media/sk8v.webp)
+# SK8M
 
-# SK8V
+**Skate 3's skating, in FiveM.**
 
-**Skate 3 gameplay. GTA V's open world.**
+SK8M brings *Skate 3*'s Flick-It controls, tricks, grinds, grabs, manuals, skitching, bails and its own animations to
+GTA V multiplayer as a FiveM resource written in Lua. It is a fork of [SK8V](https://github.com/becaring/SK8V), which
+runs Skate 3's engine inside GTA V **Story Mode**. SK8V does not support FiveM; SK8M is the FiveM side.
 
+Everything SK8M adds is in [`fivem/`](fivem). The rest of this repository is SK8V's source, unchanged.
 
-SK8V brings *Skate 3*'s Flick-It controls, board/skater physics, grinds, manuals, skitching, tricks, combos, bails, scoring, session markers, and Hall of Meat into **GTA V Legacy Story Mode**. Skate's gameplay runs alongside GTA's characters, traffic, weapons, radio, and world interactions. Skate 3’s own audio engine runs inside GTA’s mixer, so wheels sound different on every GTA surface. Things like concrete, asphalt, wood, metal, tile all sound different, and your wheels click over the cracks and seams in the pavement, with almost complete coverage.
+## You need your own Skate 3
 
-## Requirements
-- **SSD is recommended for installation**
-- **Windows x64**, **GTA V Legacy 1.0.3889.0**, and **ScriptHookV v3889.0 / 1158.13** with its ASI loader. (https://www.dev-c.com/gtav/scripthookv/)
-- Your own Skate 3 Xbox 360 disc ISO or extracted disc folder (tested: title ID 454108E6, media ID 5C087C2C, no title update)
-- About **7 GB free** on your GTA drive for setup; roughly **2 GB** remains afterward.
+**No Skate 3 or GTA V assets are in this repository**: no animations, sounds, models, textures, tuning numbers,
+executables or keys. As with SK8V, you supply your own copies of both games, and everything taken from them is
+converted on your machine and stays there.
 
-**Story Mode only.** GTA V Enhanced, GTA Online, and FiveM are not supported.
+SK8M reads a **Skate 3 PS3 disc dump** (the `PS3_GAME` folder). SK8V itself uses the Xbox 360 disc.
 
-## Install
+## What is in `fivem/`
 
-1. Download and extract the latest **SK8V release ZIP** from [Releases](../../releases/latest), **not** GitHub's Source code ZIP.
-2. Close GTA V and run **`SK8V Setup.cmd`**. (If your GTA installation is in a protected folder (Program Files, etc.) setup will offer to restart as administrator.)
-3. Select your Skate 3 disc, choose **Regular** or **Goofy** stance, and press **Install**. Setup detects your GTA V folder when possible.
-4. Launch GTA V Legacy **Story Mode with BattlEye disabled**. Select the **skateboard** in GTA's weapon wheel, then press `Y` to mount it.
+| Folder | What it is |
+|---|---|
+| [`fivem/skateboard`](fivem/skateboard) | The FiveM resource. New code only, safe to share. It runs by itself with GTA's stock animations. Controls, install and settings are in its [README](fivem/skateboard/README.md). |
+| [`fivem/skate3-sp/tools`](fivem/skate3-sp/tools) | The converters. From your own disc they build a second, **private** resource, `skate3_assets`: Skate 3's clips as GTA clip dictionaries, its Flick-It gesture patterns, tuning numbers, board sounds and board models. |
+| [`fivem/skate3-sp/fivem_template`](fivem/skate3-sp/fivem_template) | The player script that goes into `skate3_assets`. |
+| [`fivem/skate3-sp/tests`](fivem/skate3-sp/tests) | Offline tests: both resources run in a simulator (Python + Lua 5.4) that checks every native call against FiveM's native reference. |
+| [`fivem/TRICKS.md`](fivem/TRICKS.md) | Which of Skate 3's tricks are built. |
 
-Setup prepares data from your copies of both games. It can download a local Python environment if needed, and rerunning it resumes interrupted preparation.
+With `skate3_assets` running beside `skateboard`, the rider plays Skate 3's own clips. Without it, `skateboard` still
+works on its own.
 
-Command-line alternative (Python 3.11+, NumPy, Pillow):
+**Keep `skate3_assets` private.** It is made from your disc. A FiveM server sends its resources to every player who
+joins, so do not upload it and do not run it on a server for people who do not own the game.
+
+## Install the resource
+
+1. Copy `fivem/skateboard` into your server's `resources` folder.
+2. Add `ensure skateboard` to `server.cfg` and restart.
+
+The rest (the inventory item, the skate shop, controls, settings) is in the resource's
+[README](fivem/skateboard/README.md).
+
+## Build `skate3_assets` from your own disc
+
+Windows, Python 3.11 or newer with `lupa`, `numpy` and `Pillow`, and `ffmpeg` on the path.
+Run the commands from `fivem/skate3-sp`.
+
+1. Put your disc dump's `PS3_GAME` folder at `fivem/PS3_GAME` (git ignores it).
+2. Copy `fivem/skate3-sp/tools/local_paths.example.json` to `local_paths.json` and set your folders. What each one is
+   for is explained in [`paths.py`](fivem/skate3-sp/tools/paths.py).
+3. Dump the game's tuning vault: `python tools/vlt/vlt_parse.py --dump <work>\vlt\dump`.
+4. Convert the clips: `python tools/export_all.py`.
+5. Build the resource: `python tools/build_fivem_assets.py`. It is written to `<work>\fivem\skate3_assets`.
+6. Copy `skate3_assets` to your own server and `ensure` it before `skateboard`.
+
+Each tool says what it reads and writes at the top of its file.
+
+### Not in the repository yet
+
+Two inputs of step 4 have no tool here, so the build does not run end to end from a fresh clone:
+
+- **The animation decoder.** `export_all.py` reads Skate 3's clip banks (`OnBoard.abin`, `OffBoard.abin`) already
+  decoded to CSV (`onboard_csv`, `offboard_csv` and their `*_meta.csv` in the work folder). The decoder is not
+  included.
+- **GTA's skeleton.** `s3_to_ycd.py` reads `tools/gta_ped_rig.json`: the rest pose of the ped skeleton (`player_one`)
+  from your own GTA V. Per bone it holds `name`, `tag`, `parent`, `head`, `world_q`, `local_q`, `local_t`, in the
+  armature space of a Sollumz import in Blender. An exporter is not included.
+
+Compiling clip dictionaries and models needs a command-line wrapper around CodeWalker.Core (`cwtool` in
+`local_paths.json`). The tools send it one JSON command on standard input, for example
+`{"cmd": "tobin", "in": "<file>.ycd.xml"}`.
+
+## How the animations are fitted
+
+Skate 3's skeleton and GTA's have their joints at different places in the body. Copying bone rotations alone leaves
+the hips 8 cm low, every sole tipped 11 degrees into the deck and a grabbing hand 10 cm from the board. The converter
+fits the GTA body with the method of SK8V's `rust/skatev-runtime/src/ped.rs`: GTA keeps its own bone lengths, the hip
+joints go where Skate 3's are, the feet stay flat, each ankle is put on Skate 3's by a two-bone solve, and a hand is
+put on Skate 3's while it touches the board or the ground. `tests/retarget_fit.py` measures the result against Skate
+3's own joints.
+
+## Tests
+
+From `fivem/skate3-sp/tests`, with `skate3_assets` built:
 
 ```powershell
-python tools/prepare.py --skate "<Skate 3.iso or folder>" --gta "<GTA V folder>" --stance Goofy --install --clean
+python ridetest.py
+python retarget_fit.py
+python ycd_roundtrip.py
 ```
 
-(from the extracted release folder; omit --stance for Regular).
+`ridetest.py [scenario ...]` runs the ride scenarios. The simulator needs FiveM's native reference
+(`fivem_natives.json`, `fivem_natives_cfx.json`) in the folder named `native_db` in `local_paths.json`.
 
-### Unable to save settings in the menu?
+## Status
 
-1. Right-click your game install folder and select Properties.
-2. Click the Security tab and click Edit.
-3. Click Add, type your specific user account name (or less preferably, Everyone), then click Check Names and OK.
-4. Select the newly added user or group, check the box for Full control under the Allow column, then click Apply and OK
-
-### Known Limitations & Future Support
-
-- **Rockstar Editor:** Recording and playback are not currently functional with SK8V. Support is planned for a future update.
-
-- **Teleporting while skating:** Teleporting directly while Skate mode is active may cause the skater to fall through the map. Switch back to GTA control before teleporting, then resume skating at your destination.
-
-- **GTA V Enhanced:** SK8V currently supports GTA V Legacy only. Enhanced Edition compatibility is a long-term goal, but may require significant additional work and is not guaranteed.
-
-## Controls
-
-**All regular skating controls are Skate 3's.** SK8V adds:
-
-| Input | Action |
-|---|---|
-| GTA weapon wheel → **Skateboard** | Enter Skate mode |
-| `Y` / hold `Y` | Mount or dismount / put the board away and return to GTA |
-| Keyboard `/` or controller `Back + LB` | Open SK8V menu |
-| `Back` / hold `Back` | Equip or holster a weapon / open weapon wheel when armed |
-| `LB` / `RB` when armed | Aim / fire |
-| D-pad left/right, gun holstered | Change radio station |
-| D-pad left/right, gun equipped | Change weapon |
-| Double-tap `X` on foot near a grabbable wall | GTA mantle, then return to Skate |
-
-Swimming switches to GTA automatically and returns to Skate afterward. **Hall of Meat is on by default** and can be disabled in the SK8V menu, alongside other gameplay settings.
-
-## Uninstall
-
-With GTA V closed, remove these from its folder:
-
-- `SkateVLegacy.asi`, `SkateVRuntime.dll`, `SkateVLegacy.ini`, `SkateVLegacy.installed.json`
-- `SK8V/`
-- `update/x64/dlcpacks/skatev/`
-
-Logs and records are in `%LOCALAPPDATA%\SkateV` and can be deleted separately. ScriptHookV is left untouched.
-
-## Building from Source
-
-Run BOOTSTRAP.bat to build the code, then follow BUILDING.md to package a release. The baked world collision data is copied from a published release.
+Work in progress. The ride, the trick families listed in `TRICKS.md`, grinds, grabs, ramps and bowls, the off-board
+mode and the skate shop are built and pass the offline tests. Not all of it has been checked in the game yet.
 
 ## License
 
-Original SK8V code is [Apache-2.0](LICENSE); third-party components keep their own licenses and are credited in [NOTICE](NOTICE). SK8V is an unofficial fan project, unaffiliated with EA, Rockstar Games, or Take-Two Interactive. No GTA V or Skate 3 retail assets, executables, keys, or proprietary SDK redistributables are included; supply your own game copies.
+SK8M's own code (the `fivem/` folder) is [Apache-2.0](LICENSE), like SK8V. Third-party components keep their own
+licenses and are credited in [NOTICE](NOTICE).
 
-## Support Me
-[<img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" height="40">](https://buymeacoffee.com/becaring) [<img src="https://storage.ko-fi.com/cdn/kofi3.png?v=3" height="36">](https://ko-fi.com/becaring)
+SK8M is an unofficial fan project, unaffiliated with EA, Rockstar Games, or Take-Two Interactive. No GTA V or Skate 3
+retail assets, executables, keys, or proprietary SDK redistributables are included; supply your own game copies.
 
-If you had fun with SK8V, a donation is NEVER required but always appreciated <3 
+## Credits
+
+- [SK8V](https://github.com/becaring/SK8V) by becaring: the project this is forked from, and the source of the body
+  fitting method and of the ground material sorting used here. For Story Mode, use SK8V.
+- Everyone credited in SK8V's [NOTICE](NOTICE).
+- The Skate-Modding-Team's published vault key list, which names most of the tuning fields the vault parser reads.
