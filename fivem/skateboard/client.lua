@@ -1617,6 +1617,20 @@ function SK.fit(ped)
     return true
 end
 
+-- (for engine.lua: the two questions asked before anyone gets on a board, with the same words when the answer is no)
+function SkateboardMayRide()
+    local ped = PlayerPedId()
+    if not SK.fit(ped) then
+        if not IsPedInAnyVehicle(ped, false) then notify("You can't get on a board right now.") end
+        return false
+    end
+    if not ownsBoard() then
+        notify('~r~You need a skateboard.~s~ Get one into your inventory first.')
+        return false
+    end
+    return true
+end
+
 local function mount(from)
     local ped = PlayerPedId()
     if not SK.fit(ped) then
@@ -1947,6 +1961,8 @@ end
 -- else a plain step off. Off the board with it in the hand: the board is put away. Otherwise: onto the board.
 local function toggle()
     CreateThread(function()
+        -- (Skate 3's own engine rides when it is there and switched on: engine.lua)
+        if Engine and Engine.rides(riding or off ~= nil) then return Engine.toggle() end
         if riding then
             if stepOff() == nil then getOff() end
         elseif off then
@@ -3552,6 +3568,7 @@ SkateTest = {
 -- Using the item drops your board and puts you on it; using it while riding steps off and picks it up.
 exports('useBoard', function()
     CreateThread(function()
+        if Engine and Engine.rides(riding or off ~= nil) then return Engine.toggle() end
         if riding then
             getOff()
             pickUp()

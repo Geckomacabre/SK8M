@@ -12,6 +12,11 @@ Config.NetworkBoard = true   -- false if your server's entity lockdown blocks cl
 -- board goes, another is under your feet); false = no calling: walk to it (E / the target on it), or pick it up.
 Config.CallBoard    = true
 Config.BoardLodDist = 120    -- metres from which the board is still drawn (a prop's own is 15)
+-- Skate 3's own engine. While skate3_assets is running and was built with it (fivem/engine in the repository, from
+-- your own copy of the game), getting on the board starts the engine: the game's real physics, tricks and camera,
+-- on the ground rays find round the board. false = this resource's own ride, as before. See engine.lua for what
+-- the engine's ride does not have yet (the rider's animations, grinds, other players seeing the board).
+Config.Engine = true
 -- Skate 3's own board. While skate3_assets is running and was built with it (skate3-sp/tools/build_board.py, from your
 -- own copy of the game), the board is Skate 3's: its deck, trucks and wheels, each one of Skate 3's own, chosen at a
 -- skate shop or with /skatedeck, /skatetruck, /skatewheel (no argument = what is on; next / prev; or a part's id).

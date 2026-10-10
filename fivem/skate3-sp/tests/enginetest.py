@@ -51,6 +51,15 @@ def ride(r, label):
                   len(pads) >= 2 and all(m.buttons == 0 and m.lx == 0 and m.ry == 0 for m in pads))
     board = sim.run('skateboard', 'return Engine.board()')
     ok &= r.check("a board is made for it, with no collision of its own", board is not None and sim.ent(board).collision is False)
+    r.frame(20)
+    grounds = [m for m in list(S.nui.values())[before:] if m.t == 'eng' and m.op == 'ground']
+    h = list(grounds[0].h.values()) if grounds else []
+    g = grounds[0] if grounds else None
+    ok &= r.check("within 20 frames the ground round the board is handed over once: %d x %d samples %.1f m apart, "
+                  "from %.1f m west and %.1f m north of the start, all at the start's height (%d of them)" % (
+                      g.n if g else 0, g.n if g else 0, g.cell if g else 0, -g.x0 if g else 0, -g.z0 if g else 0, len(h)),
+                  len(grounds) == 1 and g.n == 41 and len(h) == 41 * 41 and all(abs(v) < 0.02 for v in h)
+                  and abs(g.x0 + 10.0) < 1.01 and abs(g.z0 + 10.0) < 1.01)
     origin = (start[0], start[1], xyz(sim.ent(board).pos)[2])    # (the board is made on the ground under the ped)
 
     # the board standing at Skate (1, 0.087, 2), level, nose along Skate +z; the camera 4 m behind and 2 m up
@@ -106,7 +115,7 @@ def ride(r, label):
 
 
 def main():
-    r = rig.make()
+    r = rig.make(config="Config.Engine = true")
     ok = ride(r, "engine")
     misuse = r.sim.violations()
     ok &= r.check("no native misuse (%d) %s" % (len(misuse), misuse[:3]), not misuse)
@@ -125,12 +134,29 @@ def main():
         changed.append(1)
         return src.replace(a, "local function gta(x, y, z) return x, z, y end")
     print("control: Skate +z taken for GTA north")
-    c = rig.make(patch={'engine.lua': swapped})
+    c = rig.make(patch={'engine.lua': swapped}, config="Config.Engine = true")
     wrong = not ride(c, "control") and len(changed) == 1
     print(("OK  " if wrong else "BAD ") + "the control fails the placement checks")
     ok &= wrong
 
-    r2 = rig.make()
+    # getting on the board the ordinary way starts the engine when it is switched on, and gets off it again
+    r3 = rig.make(config="Config.Engine = true")
+    r3.frame(5)
+    r3.sim.command('skateboard')
+    r3.frame(3)
+    eng = [m for m in list(r3.sim.S.nui.values()) if m.t == 'eng' and m.op == 'start']
+    ok &= r3.check("with Config.Engine on, the get-on key starts the engine and not the resource's own ride",
+                   len(eng) == 1 and not r3.state().riding and r3.sim.run('skateboard', 'return Engine.active()'))
+    r3.sim.command('skateboard')
+    r3.frame(3)
+    ok &= r3.check("... and the same key again ends it", not r3.sim.run('skateboard', 'return Engine.active()'))
+    r4 = rig.make()
+    r4.frame(5)
+    r4.sim.command('skateboard')
+    r4.frame(5)
+    ok &= r4.check("with Config.Engine off, the get-on key starts the resource's own ride as before",
+                   r4.state().riding and not [m for m in list(r4.sim.S.nui.values()) if m.t == 'eng'])
+    r2 = rig.make(config="Config.Engine = true")
     r2.frame(5)
     r2.get_on()
     before = len(list(r2.sim.S.nui.values()))

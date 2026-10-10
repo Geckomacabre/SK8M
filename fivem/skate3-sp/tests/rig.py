@@ -220,7 +220,7 @@ def make(stock=False, goofy=False, offset=(0.0, 0.0, 0.0), patch=None, config=''
     if not stock and not late:
         assets()
     # (the ride's own one-line reports of bails and landings are off here: a test that wants them asks for them)
-    extra = ("\nConfig.Goofy = true" if goofy else "") + "\nConfig.Log = false\nConfig.TestCommands = true\n" + config + "\n"
+    extra = ("\nConfig.Goofy = true" if goofy else "") + "\nConfig.Log = false\nConfig.TestCommands = true\nConfig.Engine = false\n" + config + "\n"
     user = patch.get('config.lua')
     patch['config.lua'] = lambda s: (user(s) if user else s) + extra + "\n-- test\n"
     user_client = patch.get('client.lua')
