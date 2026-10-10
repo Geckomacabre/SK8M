@@ -206,6 +206,8 @@ def make(stock=False, goofy=False, offset=(0.0, 0.0, 0.0), patch=None, config=''
             files.append(os.path.join(ASSETS, "sounds.lua"))
         if decks and os.path.exists(os.path.join(ASSETS, "decks.lua")):
             files.append(os.path.join(ASSETS, "decks.lua"))
+        if os.path.exists(os.path.join(ASSETS, "engine.lua")):   # (built with Skate 3's engine staged)
+            files.append(os.path.join(ASSETS, "engine.lua"))
         files.append(os.path.join(ASSETS, "s3_player.lua"))
         sim.resource('skate3_assets', files, patch=patch)
         sim.S.tracks = sim.run('skate3_assets', 'return SkateBoardTracks')
@@ -224,7 +226,7 @@ def make(stock=False, goofy=False, offset=(0.0, 0.0, 0.0), patch=None, config=''
     user_client = patch.get('client.lua')
     patch['client.lua'] = lambda s: (user_client(s) if user_client else s) + ACCESS
     sim.resource('skateboard', [os.path.join(SKATE, n) for n in ("config.lua", "flick.lua", "tuning.lua", "surface.lua", "s3.lua", "dev.lua",
-                                                                 "deck.lua", "client.lua", "selftest.lua", "shop.lua")],
+                                                                 "deck.lua", "client.lua", "selftest.lua", "shop.lua", "engine.lua")],
                  patch=patch)
     if not stock and late:
         assets()

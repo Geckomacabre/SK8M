@@ -114,6 +114,7 @@ local clock = 0.0            -- ride time, for the stick history
 local skitch                 -- holding on to the back of a car: { veh, off = metres across it, t, hand, high, ... }
 local sk = { cd = 0.0, scan = 0.0 } -- seconds until the next hold may start; until cars are looked for again
 local SK = {}                       -- helpers kept in a table (this file's main chunk has no local variables to spare)
+function SkateboardRiding() return riding end   -- (for engine.lua: the two rides do not run together)
 
 -- ------------------------------------------------------------------ helpers
 
@@ -1709,6 +1710,7 @@ end
 
 local function getOn()
     if riding or gettingOn or off then return end
+    if Engine and Engine.active() then return end   -- (Skate 3's engine has the rider: engine.lua)
     gettingOn = true
     local ok, err = pcall(mount)
     gettingOn = false

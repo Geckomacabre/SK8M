@@ -28,8 +28,8 @@ lua54 'yes'
 name 'skate3_assets'
 description 'LOCAL ONLY - Skate 3 animations converted from your own disc. Do not publish or share.'
 
-client_scripts { 'tracks/*.lua', 'clip_index.lua', 'flick_patterns.lua', 'tuning.lua', %(sounds)s%(decks)s's3_player.lua' }
-%(files)s%(board)s"""
+client_scripts { 'tracks/*.lua', 'clip_index.lua', 'flick_patterns.lua', 'tuning.lua', %(sounds)s%(decks)s%(engine_script)s's3_player.lua' }
+%(files)s%(board)s%(engine)s"""
 BOARD_FILES = """
 -- Skate 3's own board: one model per deck, trucks and wheels (stream/s3_*.ydr), their archetypes, and the pictures
 -- the skate shop's page shows (https://cfx-nui-skate3_assets/decks/...)
@@ -37,6 +37,11 @@ data_file 'DLC_ITYP_REQUEST' 'stream/s3_boards.ytyp'
 -- (the server needs the parts' ids and prices too: it is the one that says who owns what)
 server_scripts { 'decks.lua', 'decks_server.lua' }
 files { 'decks/catalog.json', 'decks/thumbs/**/*.png', 'decks/preview/*.webp', 'decks/logos/*.png', 'decks/base/*.png' }
+"""
+ENGINE_FILES = """
+-- Skate 3's own engine as WebAssembly and the data of your disc it reads (fivem/engine); the skateboard resource's
+-- page loads them (https://cfx-nui-skate3_assets/engine/...)
+files { 'engine/sk8m_runtime.wasm', 'engine/data/files.json', 'engine/data/private/**/*' }
 """
 SOUND_FILES = """
 -- the sound player of the skateboard resource fetches these (https://cfx-nui-skate3_assets/sounds/...)
@@ -130,9 +135,28 @@ def main():
             "-- Skate 3's board parts for server scripts (the same table the client export gives)\n"
             "exports('Decks', function() return Skate3Decks end)\n")
         shutil.copytree(os.path.join(board["web"], "decks"), os.path.join(res, "decks"), dirs_exist_ok=True)
+    # Skate 3's own engine, when it has been built and staged (fivem/engine/tools/stage_web.py)
+    have_engine = (os.path.exists(os.path.join(paths.ENGINE, "sk8m_runtime.wasm"))
+                   and os.path.exists(os.path.join(paths.ENGINE, "data", "files.json")))
+    shutil.rmtree(os.path.join(res, "engine"), ignore_errors=True)
+    if have_engine:
+        os.makedirs(os.path.join(res, "engine"))
+        shutil.copy2(os.path.join(paths.ENGINE, "sk8m_runtime.wasm"), os.path.join(res, "engine", "sk8m_runtime.wasm"))
+        shutil.copytree(os.path.join(paths.ENGINE, "data"), os.path.join(res, "engine", "data"))
+        for folder, _, names in os.walk(os.path.join(res, "engine", "data")):   # (empty files are not served:
+            for name in names:                                                  # the page makes those itself)
+                if os.path.getsize(os.path.join(folder, name)) == 0:
+                    os.remove(os.path.join(folder, name))
+        open(os.path.join(res, "engine.lua"), "w").write(
+            "-- where the skateboard resource's page finds Skate 3's engine and its data\n"
+            "exports('EngineBase', function() return 'https://cfx-nui-skate3_assets/engine/' end)\n")
+    elif os.path.exists(os.path.join(res, "engine.lua")):
+        os.remove(os.path.join(res, "engine.lua"))
     open(os.path.join(res, "fxmanifest.lua"), "w").write(MANIFEST % {
         "sounds": "'sounds.lua', " if have_sounds else "",
         "decks": "'decks.lua', " if have_board else "",
+        "engine_script": "'engine.lua', " if have_engine else "",
+        "engine": ENGINE_FILES if have_engine else "",
         "board": BOARD_FILES if have_board else "",
         "files": SOUND_FILES if have_sounds else ""})
     open(os.path.join(res, "README_LOCAL_ONLY.txt"), "w").write(

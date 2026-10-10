@@ -11,6 +11,8 @@ variables SK8M_WORK, SK8M_CWTOOL, SK8M_NATIVE_DB, SK8M_ANIMTEST.
   native_db  a folder with fivem_natives.json and fivem_natives_cfx.json (FiveM's native reference), which the
              tests check every native call against
   animtest   the animation bank decoder built from tools/animtest (see its README)
+  engine     the staged engine (fivem/engine/web after tools/stage_web.py: sk8m_runtime.wasm and data/), which
+             build_fivem_assets.py puts into skate3_assets when it is there
 """
 import json
 import os
@@ -29,6 +31,7 @@ WORK = _get("work", os.path.join("~", "skate3-extract"))
 CWTOOL = _get("cwtool", "cwtool.exe")
 NATIVE_DB = _get("native_db", "")
 ANIMTEST = _get("animtest", "animtest.exe")
+ENGINE = _get("engine", os.path.join(HERE, "..", "..", "engine", "web"))
 
 
 def work(*parts):

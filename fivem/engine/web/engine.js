@@ -17,6 +17,10 @@ export async function loadEngine({ wasm, data, progress = () => {}, log = () => 
   const files = new Map();
   let got = 0;
   await Promise.all(list.map(async (f) => {
+    if (f.bytes === 0) {              // (a file the engine only checks is there)
+      files.set(f.path, new Uint8Array(0));
+      return;
+    }
     const response = await fetch(data + f.path);
     if (!response.ok) throw new Error(f.path + ': ' + response.status);
     files.set(f.path, new Uint8Array(await response.arrayBuffer()));
@@ -24,7 +28,8 @@ export async function loadEngine({ wasm, data, progress = () => {}, log = () => 
     progress(got / total);
   }));
   const wasi = makeWasi(mapVfs(files), { log });
-  const { instance } = await WebAssembly.instantiateStreaming(fetch(wasm), wasi.imports);
+  // (not instantiateStreaming: FiveM's page server does not send the WebAssembly content type it insists on)
+  const { instance } = await WebAssembly.instantiate(await (await fetch(wasm)).arrayBuffer(), wasi.imports);
   wasi.bind(instance);
   const e = instance.exports;
   const bytes = () => new Uint8Array(e.memory.buffer), floats = () => new Float32Array(e.memory.buffer);
