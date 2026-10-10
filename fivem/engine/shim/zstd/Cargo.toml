@@ -1,0 +1,9 @@
+[package]
+name = "zstd"
+version = "0.13.3"
+edition = "2024"
+publish = false
+description = "Stand-in for zstd in WebAssembly builds: the Skate engine only uses it for its own map files, which a host that hands over triangles never loads."
+
+[features]
+default = []

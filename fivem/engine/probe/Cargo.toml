@@ -1,0 +1,14 @@
+[package]
+name = "sk8m-probe"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+skate-host = { path = "../upstream/2010-rust-rewrite-mashup/skate/crates/skate-host" }
+
+[profile.release]
+opt-level = 2
+debug = false

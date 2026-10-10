@@ -1,0 +1,10 @@
+[package]
+name = "socket2"
+version = "0.6.5"
+edition = "2024"
+publish = false
+description = "Stand-in for socket2 in WebAssembly builds: the Skate engine's network crate tunes a UDP socket with it, and a WebAssembly host has no sockets to tune."
+
+[features]
+default = []
+all = []

@@ -1,0 +1,5 @@
+# fetched sources, build output, and everything made from the disc
+upstream/
+target/
+web/data/
+*.wasm

@@ -1,0 +1,16 @@
+[package]
+name = "bevy"
+version = "0.19.0"
+edition = "2024"
+publish = false
+description = "The few pieces of bevy the Skate host crate uses (math types, Transform, log macros, the Resource derive), so that it builds for WebAssembly without the engine it was written beside."
+
+[features]
+default = []
+std = []
+multi_threaded = []
+bevy_log = []
+
+[dependencies]
+glam = "0.30"
+sk8m-bevy-derive = { path = "../bevy_derive" }

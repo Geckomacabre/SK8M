@@ -1,0 +1,28 @@
+[package]
+name = "sk8m-runtime"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Skate 3's engine (the skate-host bridge) behind a small C interface, for WebAssembly hosts."
+
+[workspace]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+skate-host = { path = "../upstream/2010-rust-rewrite-mashup/skate/crates/skate-host" }
+
+# skate-host is written beside bevy but uses only its math types, Transform, log macros and the Resource derive.
+[patch.crates-io]
+bevy = { path = "../shim/bevy" }
+# Neither is reached through the bridge (the engine's own map files and its network sockets), and neither builds
+# for WebAssembly as it is.
+zstd = { path = "../shim/zstd" }
+socket2 = { path = "../shim/socket2" }
+
+[profile.release]
+opt-level = 2
+debug = false
+lto = "thin"
+panic = "abort"

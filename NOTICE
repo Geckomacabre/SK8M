@@ -78,3 +78,12 @@ Tools the SK8M build fetches (not included in this repository)
   CodeWalker, by dexyfex: fivem/skate3-sp/cwtool is a command-line program
   that links against its CodeWalker.Core library.
   https://github.com/dexyfex/CodeWalker
+
+fivem/engine
+  Builds the Skate engine named above (skate-core, skate-data, skate-host and
+  skate-net of the 2010 Rust Rewrite Mashup, fetched at the commit SK8V pins;
+  not included) as WebAssembly, behind a C interface of SK8M's own. The
+  stand-in crates under fivem/engine/shim are SK8M's and carry only the names
+  of the crates they replace (bevy, zstd, socket2). The export tools of
+  skate-3-rust-engine (tools/asset_pipeline, Apache-2.0 by chasmlol's grant,
+  see above) are fetched and run by fivem/engine/tools/engine_data.py.

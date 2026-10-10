@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SK8M engine test</title>
+<style>
+  :root { --bg: #14161a; --ground: #1d2026; --line: #2c313a; --ink: #e8eaee; --dim: #8b93a1; --board: #f2a33a; --body: #7fd0ff; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font: 14px/1.4 system-ui, sans-serif; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+  #hud { position: fixed; left: 16px; top: 12px; white-space: pre; font: 13px/1.5 ui-monospace, Consolas, monospace; }
+  #keys { position: fixed; left: 16px; bottom: 12px; color: var(--dim); max-width: 60ch; }
+  #keys b { color: var(--ink); font-weight: 600; }
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+<div id="hud">loading the engine ...</div>
+<div id="keys">Skate 3's engine, running in this page. <b>W</b> push &nbsp; <b>S</b> brake &nbsp; <b>A / D</b> steer &nbsp;
+<b>arrow keys</b> right stick (hold down, tap up = ollie) &nbsp; <b>R</b> back to the start. A controller works as it does in Skate 3.</div>
+<script type="module">
+import { loadEngine, BUTTON } from './engine.js';
+
+const canvas = document.getElementById('view'), ctx = canvas.getContext('2d'), hud = document.getElementById('hud');
+const PARENTS = [-1, 0, 1, 2, 3, 4, 5, 6, 7, 5, 9, 10, 11, 5, 13, 14, 15, 1, 17, 18, 19, 1, 21, 22, 23,
+  0, 25, 26, 26, 25, 29, 29, 25, 25, 25, 25];
+const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+const keys = new Set();
+addEventListener('keydown', (e) => { keys.add(e.code); if (e.code.startsWith('Arrow') || e.code === 'Space') e.preventDefault(); });
+addEventListener('keyup', (e) => keys.delete(e.code));
+
+function pad() {
+  const gp = [...navigator.getGamepads()].find((g) => g && g.connected && g.mapping === 'standard');
+  if (gp) {
+    const b = (i) => gp.buttons[i] && gp.buttons[i].pressed, axis = (v) => Math.round(Math.max(-1, Math.min(1, v)) * 32767);
+    let buttons = 0;
+    for (const [i, bit] of [[0, BUTTON.a], [1, BUTTON.b], [2, BUTTON.x], [3, BUTTON.y], [4, BUTTON.lb], [5, BUTTON.rb],
+      [8, BUTTON.back], [9, BUTTON.start], [10, BUTTON.ls], [11, BUTTON.rs], [12, BUTTON.up], [13, BUTTON.down],
+      [14, BUTTON.left], [15, BUTTON.right]]) if (b(i)) buttons |= bit;
+    return { buttons, lt: Math.round((gp.buttons[6]?.value || 0) * 255), rt: Math.round((gp.buttons[7]?.value || 0) * 255),
+      lx: axis(gp.axes[0]), ly: axis(-gp.axes[1]), rx: axis(gp.axes[2]), ry: axis(-gp.axes[3]) };
+  }
+  const k = (c) => keys.has(c);
+  return { buttons: (k('KeyW') ? BUTTON.a : 0) | (k('KeyS') ? BUTTON.b : 0), lt: 0, rt: 0,
+    lx: ((k('KeyD') ? 1 : 0) - (k('KeyA') ? 1 : 0)) * 24000, ly: 0,
+    rx: ((k('ArrowRight') ? 1 : 0) - (k('ArrowLeft') ? 1 : 0)) * 32767,
+    ry: ((k('ArrowUp') ? 1 : 0) - (k('ArrowDown') ? 1 : 0)) * 32767 };
+}
+
+// a chase camera of the page's own (the engine's camera comes with the pose and is for the game)
+const cam = { at: [0, 2, -5], look: [0, 1, 0] };
+function project(p, w, h) {
+  const f = norm(sub(cam.look, cam.at)), r = norm(cross(f, [0, 1, 0])), u = cross(r, f), d = sub(p, cam.at);
+  const z = dot(d, f);
+  if (z < 0.1) return null;
+  const s = (h * 1.1) / z;
+  return [w / 2 + dot(d, r) * s, h / 2 - dot(d, u) * s, z];
+}
+const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]], dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const norm = (a) => { const l = Math.hypot(...a) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
+
+function line(a, b, w, h) {
+  const p = project(a, w, h), q = project(b, w, h);
+  if (!p || !q) return;
+  ctx.beginPath(); ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]); ctx.stroke();
+}
+
+function draw(pose, speed) {
+  const w = canvas.width = canvas.clientWidth * devicePixelRatio, h = canvas.height = canvas.clientHeight * devicePixelRatio;
+  ctx.fillStyle = css('--bg'); ctx.fillRect(0, 0, w, h);
+  // the engine gives each bone against the pose's root (the board's place in the world): root x bone = the world
+  const r = pose.root;
+  const world = (x, y, z) => [r[0] * x + r[4] * y + r[8] * z + r[12], r[1] * x + r[5] * y + r[9] * z + r[13],
+    r[2] * x + r[6] * y + r[10] * z + r[14]];
+  const at = (i) => world(pose.bones[i * 16 + 12], pose.bones[i * 16 + 13], pose.bones[i * 16 + 14]);
+  const hips = at(1), board = at(25);
+  // camera: behind the way the board is going, easing
+  const v = [pose.velocity[0], 0, pose.velocity[2]], going = Math.hypot(v[0], v[2]) > 0.5 ? norm(v) : cam.dir || [0, 0, 1];
+  cam.dir = norm([(cam.dir || going)[0] * 0.95 + going[0] * 0.05, 0, (cam.dir || going)[2] * 0.95 + going[2] * 0.05]);
+  const want = [board[0] - cam.dir[0] * 4.2, board[1] + 1.9, board[2] - cam.dir[2] * 4.2];
+  cam.at = cam.at.map((c, i) => c + (want[i] - c) * 0.15);
+  cam.look = [hips[0], hips[1] * 0.6 + 0.3, hips[2]];
+  // the ground: a grid of one-metre squares round the board
+  ctx.lineWidth = 1 * devicePixelRatio; ctx.strokeStyle = css('--line');
+  const gx = Math.round(board[0]), gz = Math.round(board[2]);
+  for (let i = -14; i <= 14; i++) {
+    line([gx + i, 0, gz - 14], [gx + i, 0, gz + 14], w, h);
+    line([gx - 14, 0, gz + i], [gx + 14, 0, gz + i], w, h);
+  }
+  // the board: deck outline from its bone, trucks and wheels
+  ctx.strokeStyle = css('--board'); ctx.lineWidth = 3 * devicePixelRatio;
+  const m = pose.bones.subarray(25 * 16, 26 * 16);
+  const local = (x, y, z) => world(m[0] * x + m[4] * y + m[8] * z + m[12], m[1] * x + m[5] * y + m[9] * z + m[13],
+    m[2] * x + m[6] * y + m[10] * z + m[14]);
+  const deck = [[-0.1, 0.012, -0.4], [0.1, 0.012, -0.4], [0.1, 0.012, 0.4], [-0.1, 0.012, 0.4]].map((p) => local(...p));
+  for (let i = 0; i < 4; i++) line(deck[i], deck[(i + 1) % 4], w, h);
+  for (const [a, b] of [[27, 28], [30, 31]]) line(at(a), at(b), w, h);
+  // the rider: the engine's own bones
+  ctx.strokeStyle = css('--body'); ctx.lineWidth = 4 * devicePixelRatio; ctx.lineCap = 'round';
+  for (let i = 2; i <= 24; i++) line(at(PARENTS[i]), at(i), w, h);
+  const head = project(at(8), w, h);
+  if (head) { ctx.fillStyle = css('--body'); ctx.beginPath(); ctx.arc(head[0], head[1], (h * 0.11) / head[2], 0, 7); ctx.fill(); }
+  hud.textContent = `${pose.state}\n${speed.toFixed(1).padStart(5)} m/s   ${(speed * 3.6).toFixed(0).padStart(3)} km/h\n` +
+    `board ${board.map((c) => c.toFixed(1).padStart(7)).join('')}`;
+}
+
+try {
+  const engine = await loadEngine({ wasm: 'sk8m_runtime.wasm', data: 'data/',
+    progress: (p) => { hud.textContent = `loading the game's data ... ${(p * 100).toFixed(0)} %`; } });
+  hud.textContent = 'starting the engine ...';
+  await new Promise((r) => setTimeout(r, 30));
+  const s = 2000;
+  const started = performance.now();
+  engine.load(new Float32Array([-s, 0, -s, -s, 0, s, s, 0, -s, s, 0, -s, -s, 0, s, s, 0, s]), [], [0, 0, 0], 0);
+  window.sk8m = { engine, loadSeconds: (performance.now() - started) / 1000, ticks: 0, tickMs: 0 };
+  let last = performance.now(), owed = 0;
+  function frame(now) {
+    owed = Math.min(owed + (now - last) / 1000, 0.1);
+    last = now;
+    if (keys.has('KeyR')) { engine.place([0, 0, 0], 0); keys.delete('KeyR'); }
+    const input = pad();
+    while (owed >= engine.period) {
+      const t = performance.now();
+      engine.tick(input);
+      window.sk8m.tickMs += performance.now() - t;
+      window.sk8m.ticks++;
+      owed -= engine.period;
+    }
+    const pose = engine.pose();
+    window.sk8m.input = input;
+    window.sk8m.pose = { state: pose.state, speed: Math.hypot(...pose.velocity), count: pose.count,
+      board: [pose.root[12], pose.root[13], pose.root[14]] };
+    draw(pose, window.sk8m.pose.speed);
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+} catch (error) {
+  hud.textContent = 'failed: ' + error.message;
+  console.error(error);
+}
+</script>
+</body>
+</html>

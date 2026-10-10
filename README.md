@@ -25,6 +25,7 @@ SK8M reads a **Skate 3 PS3 disc dump** (the `PS3_GAME` folder). SK8V itself uses
 | [`fivem/skate3-sp/fivem_template`](fivem/skate3-sp/fivem_template) | The player script that goes into `skate3_assets`. |
 | [`fivem/skate3-sp/tests`](fivem/skate3-sp/tests) | Offline tests: both resources run in a simulator (Python + Lua 5.4) that checks every native call against FiveM's native reference. |
 | [`fivem/skate3-sp/cwtool`](fivem/skate3-sp/cwtool) | A small command-line program around CodeWalker's file library, used to write the files GTA V loads. |
+| [`fivem/engine`](fivem/engine) | Skate 3's own engine (the one SK8V runs) built as WebAssembly, so that it can run inside FiveM. It rides from a PS3 disc's data in a browser today; the FiveM side is being built. |
 | [`fivem/TRICKS.md`](fivem/TRICKS.md) | Which of Skate 3's tricks are built. |
 | [`fivem/GUIDE.md`](fivem/GUIDE.md) | Step by step: installing the resource and building `skate3_assets`. |
 
@@ -45,6 +46,22 @@ joins, so do not upload it and do not run it on a server for people who do not o
 
 Not in the repository yet: the step that catalogues Skate 3's own deck, truck and wheel models. Until it is,
 `skate3_assets` is built without them and the rider uses GTA's skateboard prop.
+
+## The real engine, in FiveM
+
+SK8V is further along than this resource because it does not rewrite Skate 3's skating: it runs the game's own
+logic, rebuilt in Rust by chasmlol, and gives it GTA's world. SK8V does that through hooks into the game's
+executable, which a FiveM resource cannot use. The engine itself has no such limit. [`fivem/engine`](fivem/engine)
+builds it as one WebAssembly file that a FiveM client can run, and that is where this project is heading: the
+resource's own Lua physics and trick logic give way to the engine's.
+
+Done: the engine loads a PS3 disc's data and rides (pushes, carving, ollies) natively, under Node and in a browser,
+with identical results. To do: feeding it the pad and GTA's ground from FiveM, drawing the board and the rider from
+its output, and baking the map's collision.
+
+Two things will still differ from SK8V. A FiveM script cannot set a character's bones, so the rider is shown by
+playing the converted clips the engine picks, not its exact blended pose. And GTA's collision has to be baked from
+the server owner's game files instead of being read from the running game.
 
 ## How the animations are fitted
 
