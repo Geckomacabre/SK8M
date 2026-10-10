@@ -1,0 +1,59 @@
+diff --git a/src/animtest.cpp b/src/animtest.cpp
+index 5e0f1fd..03e8e96 100644
+--- a/src/animtest.cpp
++++ b/src/animtest.cpp
+@@ -1462,7 +1462,7 @@ void ANIM_CODEC::VBRDecompressor::Vector_UnPackFrameBlockAndDecompressOneFrame(
+     //   addi r18, r10, -1    ; r18 = pCmp+5  <- refill pointer
+     // The refill lambda reads r18[1..3] = pCmp[6..8] on the first call, then
+     // advances r18 by 3 so subsequent calls read pCmp[9..11], etc.
+-    const uint8_t* selRefillPtr = pCompressedData + 5;
++    const uint8_t* selRefillPtr = pCompressedData + 4;
+ 
+     auto refillSel = [&]()
+     {
+@@ -1686,6 +1686,18 @@ const uint8_t* ANIM_CODEC::VBRDecompressor::UnPackHeaderBits(DataPerDecompress*
+         }
+     }
+ 
++    if (std::getenv("VBR_DEBUG")) {
++        std::cerr << "[mapdbg] numCh=" << (int)numChannels << " constMapSize=" << constMapSize << " chans:";
++        for (uint8_t ch = 0; ch < numChannels; ++ch) {
++            const uint8_t* e = channelInfoBase + (uint32_t)ch * 16u;
++            std::cerr << " (ent=" << Convert(*reinterpret_cast<const uint16_t*>(e + 0))
++                      << " const=" << Convert(*reinterpret_cast<const uint16_t*>(e + 2))
++                      << " size=" << (int)e[12] << ")";
++        }
++        std::cerr << " map:";
++        for (uint16_t i = 0; i < constMapSize + 4; ++i) std::cerr << " " << (int)in[i];
++        std::cerr << "\n";
++    }
+     // Constant-channel map decode (alternating-run encoding). The recomp
+     // initializes the run value to 0, writes `count` copies, then toggles.
+     {
+@@ -3627,6 +3639,11 @@ Andale::FetchSys loadAnimationDataBase(const char* DBFilename)
+ 
+     Andale::HierarchyData* skel = reinterpret_cast<Andale::HierarchyData*>(db[0].mHierarchy + 0x30);
+     uint32_t* parentsPtr = &(skel->mNbParts) + 1;
++    if (const char* dumpPath = std::getenv("SKEL_DUMP")) {
++        // raw big-endian hierarchy block (before the in-place parent conversion below)
++        std::ofstream sd(dumpPath, std::ios::binary);
++        sd.write(reinterpret_cast<const char*>(skel), 8192);
++    }
+ 
+     for (uint16_t i = 0; i < Convert(skel->mNbBones); ++i) {
+         uint32_t parentValue = Convert(parentsPtr[i]);
+@@ -3951,6 +3968,14 @@ int main(int argc, char** argv) {
+                 const Andale::AnimationData* animData =
+                     reinterpret_cast<const Andale::AnimationData*>(alignedData);
+                 nbFrames = (uint32_t)Convert(animData->mNbFrames);
++                if (const char* metaPath = std::getenv("META_OUT")) {
++                    std::ofstream mo(metaPath, std::ios::app);
++                    rw::math::vpu::Vector3 tt = Convert(animData->mTrajTransDelta);
++                    rw::math::vpu::Quaternion tq = Convert(animData->mTrajQuatDelta);
++                    mo << e.name << ',' << Convert(animData->mFPS) << ',' << Convert(animData->mNbFrames) << ','
++                       << Convert(animData->mBaseSpeed) << ',' << tt.GetX() << ',' << tt.GetY() << ',' << tt.GetZ() << ','
++                       << tq.GetX() << ',' << tq.GetY() << ',' << tq.GetZ() << ',' << tq.GetW() << '\n';
++                }
+             }
+             std::cout << "  nbFrames=" << nbFrames << " nbBones=" << nbBones << "\n";
+ 

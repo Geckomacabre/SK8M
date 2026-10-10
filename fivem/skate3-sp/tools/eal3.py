@@ -24,6 +24,7 @@ usage: python eal3.py <file> [...]            list the samples found
        python eal3.py <file> --wav <out_dir>  decode them all to .wav
 """
 import os
+import shutil
 import struct
 import subprocess
 import sys
@@ -31,7 +32,7 @@ import wave
 
 import numpy as np
 
-FFMPEG = os.environ.get("FFMPEG") or r"C:\Program Files\PySceneDetect\ffmpeg.exe"
+FFMPEG = os.environ.get("FFMPEG") or shutil.which("ffmpeg") or "ffmpeg"   # (set FFMPEG if it is not on the path)
 RATES = {3: (44100, 48000, 32000), 2: (22050, 24000, 16000), 0: (11025, 12000, 8000)}  # by MPEG version index
 KNOWN_RATES = {8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000}
 DELAY = 1105  # where the sound starts in what an MP3 decoder gives back

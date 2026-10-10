@@ -1,5 +1,6 @@
 {
   "work": "~\\skate3-extract",
-  "cwtool": "C:\\tools\\codewalker\\cwtool.exe",
+  "cwtool": "C:\\tools\\cwtool\\bin\\cwtool.exe",
+  "animtest": "C:\\tools\\animtest\\build\\animtest.exe",
   "native_db": "C:\\tools\\fivem-natives"
 }

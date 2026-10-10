@@ -24,7 +24,9 @@ SK8M reads a **Skate 3 PS3 disc dump** (the `PS3_GAME` folder). SK8V itself uses
 | [`fivem/skate3-sp/tools`](fivem/skate3-sp/tools) | The converters. From your own disc they build a second, **private** resource, `skate3_assets`: Skate 3's clips as GTA clip dictionaries, its Flick-It gesture patterns, tuning numbers, board sounds and board models. |
 | [`fivem/skate3-sp/fivem_template`](fivem/skate3-sp/fivem_template) | The player script that goes into `skate3_assets`. |
 | [`fivem/skate3-sp/tests`](fivem/skate3-sp/tests) | Offline tests: both resources run in a simulator (Python + Lua 5.4) that checks every native call against FiveM's native reference. |
+| [`fivem/skate3-sp/cwtool`](fivem/skate3-sp/cwtool) | A small command-line program around CodeWalker's file library, used to write the files GTA V loads. |
 | [`fivem/TRICKS.md`](fivem/TRICKS.md) | Which of Skate 3's tricks are built. |
+| [`fivem/GUIDE.md`](fivem/GUIDE.md) | Step by step: installing the resource and building `skate3_assets`. |
 
 With `skate3_assets` running beside `skateboard`, the rider plays Skate 3's own clips. Without it, `skateboard` still
 works on its own.
@@ -32,43 +34,17 @@ works on its own.
 **Keep `skate3_assets` private.** It is made from your disc. A FiveM server sends its resources to every player who
 joins, so do not upload it and do not run it on a server for people who do not own the game.
 
-## Install the resource
+## Getting started
 
-1. Copy `fivem/skateboard` into your server's `resources` folder.
-2. Add `ensure skateboard` to `server.cfg` and restart.
+**[The guide](fivem/GUIDE.md)** walks through everything, from an empty server to riding:
 
-The rest (the inventory item, the skate shop, controls, settings) is in the resource's
-[README](fivem/skateboard/README.md).
+1. **The `skateboard` resource**: copy `fivem/skateboard` into your server's `resources` folder and add
+   `ensure skateboard` to `server.cfg`. Ten minutes, no Skate 3 files needed.
+2. **`skate3_assets`**: built once from your own Skate 3, about an hour the first time. The guide lists the tools it
+   needs and where to get each of them.
 
-## Build `skate3_assets` from your own disc
-
-Windows, Python 3.11 or newer with `lupa`, `numpy` and `Pillow`, and `ffmpeg` on the path.
-Run the commands from `fivem/skate3-sp`.
-
-1. Put your disc dump's `PS3_GAME` folder at `fivem/PS3_GAME` (git ignores it).
-2. Copy `fivem/skate3-sp/tools/local_paths.example.json` to `local_paths.json` and set your folders. What each one is
-   for is explained in [`paths.py`](fivem/skate3-sp/tools/paths.py).
-3. Dump the game's tuning vault: `python tools/vlt/vlt_parse.py --dump <work>\vlt\dump`.
-4. Convert the clips: `python tools/export_all.py`.
-5. Build the resource: `python tools/build_fivem_assets.py`. It is written to `<work>\fivem\skate3_assets`.
-6. Copy `skate3_assets` to your own server and `ensure` it before `skateboard`.
-
-Each tool says what it reads and writes at the top of its file.
-
-### Not in the repository yet
-
-Two inputs of step 4 have no tool here, so the build does not run end to end from a fresh clone:
-
-- **The animation decoder.** `export_all.py` reads Skate 3's clip banks (`OnBoard.abin`, `OffBoard.abin`) already
-  decoded to CSV (`onboard_csv`, `offboard_csv` and their `*_meta.csv` in the work folder). The decoder is not
-  included.
-- **GTA's skeleton.** `s3_to_ycd.py` reads `tools/gta_ped_rig.json`: the rest pose of the ped skeleton (`player_one`)
-  from your own GTA V. Per bone it holds `name`, `tag`, `parent`, `head`, `world_q`, `local_q`, `local_t`, in the
-  armature space of a Sollumz import in Blender. An exporter is not included.
-
-Compiling clip dictionaries and models needs a command-line wrapper around CodeWalker.Core (`cwtool` in
-`local_paths.json`). The tools send it one JSON command on standard input, for example
-`{"cmd": "tobin", "in": "<file>.ycd.xml"}`.
+Not in the repository yet: the step that catalogues Skate 3's own deck, truck and wheel models. Until it is,
+`skate3_assets` is built without them and the rider uses GTA's skateboard prop.
 
 ## How the animations are fitted
 

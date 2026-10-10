@@ -60,3 +60,7 @@ fivem/skate3-sp/tests/nativedb/
 *.ogg
 *.abin
 *.big
+fivem/skate3-sp/cwtool/upstream/
+fivem/skate3-sp/cwtool/bin/
+fivem/skate3-sp/cwtool/CWTool/bin/
+fivem/skate3-sp/cwtool/CWTool/obj/
