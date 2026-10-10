@@ -68,3 +68,13 @@ sorts GTA's ground materials after rust/skatev-runtime/src/materials.rs.
 Skate 3 vault field names (fivem/skate3-sp/tools/vlt/names.json)
   Most names come from the key list published by the Skate-Modding-Team.
   https://github.com/Skate-Modding-Team/VaultTest
+
+Tools the SK8M build fetches (not included in this repository)
+  AnimTest, by the Skate-Modding-Team: the animation bank decoder.
+  fivem/skate3-sp/tools/animtest holds a patch against it and a small
+  stand-in header. https://github.com/Skate-Modding-Team/AnimTest
+  EASTL and EABase, Copyright Electronic Arts Inc. (BSD-3-Clause): built
+  into that decoder. https://github.com/electronicarts/EASTL
+  CodeWalker, by dexyfex: fivem/skate3-sp/cwtool is a command-line program
+  that links against its CodeWalker.Core library.
+  https://github.com/dexyfex/CodeWalker
