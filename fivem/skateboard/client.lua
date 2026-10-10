@@ -1730,6 +1730,7 @@ local function getOn()
     gettingOn = false
     if not ok then error(err, 0) end
 end
+function SkateboardGetOn() getOn() end   -- (for engine.lua: this ride, when the engine cannot take the rider)
 
 -- ------------------------------------------------------------------ the board after a bail
 

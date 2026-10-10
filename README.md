@@ -25,7 +25,7 @@ SK8M reads a **Skate 3 PS3 disc dump** (the `PS3_GAME` folder). SK8V itself uses
 | [`fivem/skate3-sp/fivem_template`](fivem/skate3-sp/fivem_template) | The player script that goes into `skate3_assets`. |
 | [`fivem/skate3-sp/tests`](fivem/skate3-sp/tests) | Offline tests: both resources run in a simulator (Python + Lua 5.4) that checks every native call against FiveM's native reference. |
 | [`fivem/skate3-sp/cwtool`](fivem/skate3-sp/cwtool) | A small command-line program around CodeWalker's file library, used to write the files GTA V loads. |
-| [`fivem/engine`](fivem/engine) | Skate 3's own engine (the one SK8V runs) built as WebAssembly, so that it can run inside FiveM. It rides from a PS3 disc's data in a browser today; the FiveM side is being built. |
+| [`fivem/engine`](fivem/engine) | Skate 3's own engine (the one SK8V runs) built as WebAssembly. The FiveM server runs it; getting on the board uses it when the server has it. |
 | [`fivem/TRICKS.md`](fivem/TRICKS.md) | Which of Skate 3's tricks are built. |
 | [`fivem/GUIDE.md`](fivem/GUIDE.md) | Step by step: installing the resource and building `skate3_assets`. |
 
@@ -52,16 +52,22 @@ Not in the repository yet: the step that catalogues Skate 3's own deck, truck an
 SK8V is further along than this resource because it does not rewrite Skate 3's skating: it runs the game's own
 logic, rebuilt in Rust by chasmlol, and gives it GTA's world. SK8V does that through hooks into the game's
 executable, which a FiveM resource cannot use. The engine itself has no such limit. [`fivem/engine`](fivem/engine)
-builds it as one WebAssembly file that a FiveM client can run, and that is where this project is heading: the
-resource's own Lua physics and trick logic give way to the engine's.
+builds it as one WebAssembly file, and that is where this project is heading: the resource's own Lua physics and
+trick logic give way to the engine's.
 
-Done: the engine loads a PS3 disc's data and rides (pushes, carving, ollies) natively, under Node and in a browser,
-with identical results. To do: feeding it the pad and GTA's ground from FiveM, drawing the board and the rider from
-its output, and baking the map's collision.
+FiveM's in-game browser has WebAssembly switched off, so the engine runs on the **server**. A player's game sends
+its pad and the ground round the board; the server sends back where the board is. The Skate 3 data the engine
+reads stays on the server and is never sent to players.
 
-Two things will still differ from SK8V. A FiveM script cannot set a character's bones, so the rider is shown by
-playing the converted clips the engine picks, not its exact blended pose. And GTA's collision has to be baked from
-the server owner's game files instead of being read from the running game.
+Done: the engine loads a PS3 disc's data and rides (pushes, carving, ollies) with identical results natively,
+under Node and in a browser; the server script runs it for several riders; getting on the board starts it
+(`Config.Engine`), on ground found by rays round the board. To do: the rider's animations (the rider is held in
+the riding stance for now), grinds, other players seeing the board, and the map's real collision.
+
+Three things will differ from SK8V. A FiveM script cannot set a character's bones, so the rider is shown by
+playing the converted clips the engine picks, not its exact blended pose. GTA's collision has to be prepared
+instead of being read from the running game. And what a player does reaches the engine over the network, a few
+hundredths of a second plus their ping later.
 
 ## How the animations are fitted
 

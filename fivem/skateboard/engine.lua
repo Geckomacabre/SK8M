@@ -1,17 +1,19 @@
--- Skate 3's own engine, hosted by this resource.
+-- Skate 3's own engine: the player's side.
 --
 -- The engine is the Rust rewrite of Skate 3's skating that SK8V runs, built as WebAssembly (fivem/engine in the
--- repository) and put into skate3_assets with the data of the player's own disc. It runs in this resource's page
--- (html/engine/): this file hands it the pad every frame, as an Xbox pad reports it, and the ground round the
--- board, and puts the board, the rider and the camera where it says. Nothing of this resource's own physics or
--- trick logic runs meanwhile.
+-- repository). FiveM's in-game browser has WebAssembly switched off, so the engine runs on the SERVER
+-- (engine_server.js), one rider a player, with the data of the server owner's own disc; that data never comes
+-- here. This file sends the server the pad, sample by sample as an Xbox pad reports it, and the ground round the
+-- board, and puts the board, the rider and the camera where the server's answers say. Nothing of this resource's
+-- own physics or trick logic runs meanwhile.
 --
--- With Config.Engine on and the engine in skate3_assets, getting on the board (the item, F6, D-pad right) starts
+-- With Config.Engine on and a server that has the engine, getting on the board (the item, F6, D-pad right) starts
 -- it and the same again ends it. /sk8engine does the same by hand, /sk8enginestate says what it is doing.
 --   * the ground is what rays find under a grid round the board, half a metre apart: slopes, kerbs and ramps are
 --     there, a wall is a steep ramp, and there is nothing to grind on yet,
 --   * the rider is shown in the riding stance only (which clips the engine plays is not read out yet),
---   * the board is seen by you alone.
+--   * the board is seen by you alone,
+--   * what you do reaches the engine a few hundredths of a second later, plus your ping.
 -- Skate 3's space is metres with y up: Skate (x, y, z) = GTA (x, -z, y) from the place it was started at.
 
 Engine = {}
@@ -23,6 +25,8 @@ local ROOT_ABOVE_GROUND = 0.087  -- the engine's board root above the wheels' co
 local BUTTON = { [223] = 0x1000, [224] = 0x4000, [225] = 0x2000, [226] = 0x0100, [227] = 0x0200,
                  [230] = 0x0040, [231] = 0x0080, [232] = 0x0001, [233] = 0x0002, [234] = 0x0004, [236] = 0x0020 }
 local KEEP = { 245, 249, 199, 200, 322 }   -- chat, push to talk, pause: left to the game
+local TICK = 1.0 / 60.0                    -- the engine's tick: the pad is sampled once for each
+local PADS_A_MESSAGE = 2                   -- samples sent together (30 messages a second while the pad moves)
 
 -- The ground: heights on a grid fixed in the world, found by rays and kept; the window round the board is sent
 -- to the engine when it has moved on and is complete.
@@ -32,6 +36,7 @@ local RAYS_A_FRAME = 120
 local GROUND_FLAGS = 1 | 16                -- the map and objects (not vehicles, not peds)
 local NO_GROUND = -1000.0                  -- sent for a sample with nothing under it
 
+local have                      -- does the server have the engine? (nil until it has answered)
 local on = false
 local origin, startHeading      -- GTA place and heading the engine's (0, 0, 0) and heading 0 stand for
 local board, boardGeom, dressed
@@ -42,6 +47,7 @@ local riderHeading
 local heights, heightAt         -- cell -> ground height there (false = none), and the height it was looked for from
 local sent                      -- the window the engine has: { x, y, at }
 local grounds = 0
+local samples, owed, lastSent   -- pad samples waiting to go, time not yet sampled, the last sample that went
 
 local function say(text)
     print(('[skateboard] engine: %s'):format(text))
@@ -111,25 +117,42 @@ local function stance(ped)
     if HasAnimDictLoaded(dict) then TaskPlayAnim(ped, dict, clip, 8.0, -8.0, -1, 1, 0.0, false, false, false) end
 end
 
--- The pad as XInput reports it. On the keyboard: W pushes, S brakes, A / D steer, the arrow keys are the right stick.
+-- The pad as XInput reports it: buttons, left trigger, right trigger, left stick x, y, right stick x, y. On the
+-- keyboard: W pushes, S brakes, A / D steer, the arrow keys are the right stick.
 local function readPad()
+    if IsUsingKeyboard(0) then
+        local function key(control) return IsDisabledControlPressed(0, control) and 1 or 0 end
+        return (key(32) == 1 and 0x1000 or 0) | (key(33) == 1 and 0x2000 or 0), 0, 0,
+            (key(35) - key(34)) * 24000, 0, (key(175) - key(174)) * 32767, (key(172) - key(173)) * 32767
+    end
     local buttons = 0
     for control, bit in pairs(BUTTON) do
         if IsDisabledControlPressed(0, control) then buttons = buttons | bit end
     end
     local function axis(control) return math.floor(GetDisabledControlNormal(0, control) * 32767.0 + 0.5) end
-    local pad = { t = 'eng', op = 'pad', buttons = buttons,
-                  lt = math.floor(GetDisabledControlNormal(0, 228) * 255.0 + 0.5),
-                  rt = math.floor(GetDisabledControlNormal(0, 229) * 255.0 + 0.5),
-                  lx = axis(218), ly = -axis(219), rx = axis(220), ry = -axis(221) }
-    if IsUsingKeyboard(0) then
-        local function key(control) return IsDisabledControlPressed(0, control) and 1 or 0 end
-        pad.buttons = (key(32) == 1 and 0x1000 or 0) | (key(33) == 1 and 0x2000 or 0)
-        pad.lt, pad.rt = 0, 0
-        pad.lx, pad.ly = (key(35) - key(34)) * 24000, 0
-        pad.rx, pad.ry = (key(175) - key(174)) * 32767, (key(172) - key(173)) * 32767
+    return buttons, math.floor(GetDisabledControlNormal(0, 228) * 255.0 + 0.5),
+        math.floor(GetDisabledControlNormal(0, 229) * 255.0 + 0.5), axis(218), -axis(219), axis(220), -axis(221)
+end
+
+-- Sample the pad once for every tick of the engine that has gone by (whatever the frame rate) and send the
+-- samples a few at a time. While nothing on the pad changes nothing is sent: the server keeps the last sample.
+local function sendPad(dt)
+    owed = math.min(owed + dt, 0.1)
+    while owed >= TICK do
+        owed = owed - TICK
+        local n = #samples
+        samples[n + 1], samples[n + 2], samples[n + 3], samples[n + 4], samples[n + 5], samples[n + 6], samples[n + 7] = readPad()
     end
-    return pad
+    if #samples < 7 * PADS_A_MESSAGE then return end
+    local same = true
+    for i = 1, #samples do
+        if samples[i] ~= lastSent[(i - 1) % 7 + 1] then same = false break end
+    end
+    if not same then
+        TriggerServerEvent('skateboard:engPads', samples)
+        for i = 1, 7 do lastSent[i] = samples[#samples - 7 + i] end
+    end
+    samples = {}
 end
 
 -- The ground under one sample of the grid, looked for from the board's height: first from a little over it (so a
@@ -180,8 +203,8 @@ local function ground(ped, px, py, pz, vx, vy)
             h[n] = z and math.floor((z - origin.z) * 1000.0 + 0.5) / 1000.0 or NO_GROUND
         end
     end
-    SendNUIMessage({ t = 'eng', op = 'ground', n = SAMPLES, cell = CELL, none = NO_GROUND,
-                     x0 = (cx - HALF) * CELL - origin.x, z0 = -((cy + HALF) * CELL - origin.y), h = h })
+    TriggerServerEvent('skateboard:engGround', SAMPLES, CELL, (cx - HALF) * CELL - origin.x,
+        -((cy + HALF) * CELL - origin.y), NO_GROUND, h)
     sent = { x = cx, y = cy, at = now }
     grounds = grounds + 1
 end
@@ -227,7 +250,7 @@ end
 function Engine.stop(why)
     if not on then return end
     on = false
-    SendNUIMessage({ t = 'eng', op = 'stop' })
+    TriggerServerEvent('skateboard:engStop')
     local ped = PlayerPedId()
     if cam then
         RenderScriptCams(false, false, 0, true, false)
@@ -243,7 +266,7 @@ function Engine.stop(why)
     ClearPedTasks(ped)
     FreezeEntityPosition(ped, false)
     SetEntityCollision(ped, true, true)
-    -- (set down beside where the board was, on the ground there, not left in the air over it)
+    -- (set down where the board was, on the ground there, not left in the air over it)
     if at then SetEntityCoordsNoOffset(ped, at.x, at.y, at.z + 1.0, false, false, false) end
     say(('stopped%s; %d answers from the engine, the ground handed over %d times'):format(
         why and (' (' .. why .. ')') or '', poses, grounds))
@@ -252,21 +275,14 @@ end
 function Engine.active() return on end
 function Engine.board() return board end
 
--- Where the page finds the engine (skate3_assets built with it), or nil.
-local function engineBase()
-    local ok, base = pcall(function() return exports.skate3_assets:EngineBase() end)
-    return ok and base or nil
-end
-
 function Engine.start()
     if on then return end
     if SkateboardRiding() then
         say('get off the board first')
         return
     end
-    local base = engineBase()
-    if not base then
-        say('skate3_assets has no engine in it (build it with the engine staged, see fivem/engine)')
+    if not have then
+        say('this server has no engine (skate3_assets built with it, and the skateboard resource started after it)')
         return
     end
     local ped = PlayerPedId()
@@ -282,14 +298,15 @@ function Engine.start()
     end
     on, pose, poses, firstPose = true, nil, 0, nil
     heights, heightAt, sent, grounds = {}, {}, nil, 0
+    samples, owed, lastSent = {}, 0.0, { 0, 0, 0, 0, 0, 0, 0 }
     FreezeEntityPosition(ped, true)
     SetEntityCollision(ped, false, false)
     stance(ped)
     -- (the engine faces Skate +z at heading 0, which is GTA south: half a turn from GTA's heading 0)
-    SendNUIMessage({ t = 'eng', op = 'start', base = base, heading = math.rad(startHeading + 180.0) })
-    say(('starting at %.1f %.1f %.1f, heading %.0f; the first time takes about ten seconds'):format(
-        origin.x, origin.y, origin.z, startHeading))
+    TriggerServerEvent('skateboard:engStart', math.rad(startHeading + 180.0))
+    say(('starting at %.1f %.1f %.1f, heading %.0f'):format(origin.x, origin.y, origin.z, startHeading))
     CreateThread(function()
+        local last = GetGameTimer()
         while on do
             DisableAllControlActions(0)
             for _, control in ipairs(KEEP) do EnableControlAction(0, control, true) end
@@ -297,7 +314,9 @@ function Engine.start()
                 Engine.stop('the player changed')
                 break
             end
-            SendNUIMessage(readPad())
+            local now = GetGameTimer()
+            sendPad((now - last) / 1000.0)
+            last = now
             if pose then
                 local px, py, pz, vx, vy = show(ped)
                 if pz < origin.z - 300.0 then
@@ -316,7 +335,7 @@ end
 -- Does getting on / off the board mean the engine? busy = the resource's own ride has the rider.
 function Engine.rides(busy)
     if on then return true end
-    return Config.Engine ~= false and not busy and engineBase() ~= nil
+    return Config.Engine ~= false and not busy and have == true
 end
 
 function Engine.toggle()
@@ -327,23 +346,36 @@ function Engine.toggle()
     end
 end
 
-RegisterNUICallback('eng', function(data, cb)
-    cb('ok')
-    if data.k == 'pose' then
-        if not on then return end
-        pose, poseAt = data, GetGameTimer()
-        poses = poses + 1
-        if not firstPose then
-            firstPose = poseAt
-            say(('riding: %s'):format(tostring(data.s)))
-        end
-    elseif data.k == 'ready' then
-        say(('loaded in %d ms, %d bones, one tick = %.4f s'):format(data.ms or 0, data.bones or 0, data.period or 0.0))
-    elseif data.k == 'log' then
-        say(tostring(data.m))
-    elseif data.k == 'error' then
-        say('FAILED: ' .. tostring(data.m))
-        Engine.stop('the engine failed')
+RegisterNetEvent('skateboard:engHave', function(yes) have = yes == true end)
+
+RegisterNetEvent('skateboard:engReady', function(period, ms)
+    say(('the server\'s engine has you: ready in %d ms, one tick = %.4f s'):format(ms or 0, period or 0.0))
+end)
+
+RegisterNetEvent('skateboard:engPose', function(n, state, r, v, c)
+    if not on or type(r) ~= 'table' or type(v) ~= 'table' or type(c) ~= 'table' then return end
+    pose, poseAt = { n = n, s = state, r = r, v = v, c = c }, GetGameTimer()
+    poses = poses + 1
+    if not firstPose then
+        firstPose = poseAt
+        say(('riding: %s'):format(tostring(state)))
+    end
+end)
+
+RegisterNetEvent('skateboard:engError', function(text)
+    if not on then return end
+    local riding = firstPose ~= nil
+    say('FAILED: ' .. tostring(text))
+    Engine.stop('the engine failed')
+    -- (every rider of the engine taken, or it would not start: the resource's own ride instead)
+    if not riding then SkateboardGetOn() end
+end)
+
+-- (asked now and then: the server's resource may be started again while this one runs)
+CreateThread(function()
+    while true do
+        TriggerServerEvent('skateboard:engAsk')
+        Wait(have == nil and 5000 or 60000)
     end
 end)
 
@@ -357,7 +389,7 @@ end, false)
 
 -- Where the engine has the board and what the rider does, for looking into a report afterwards.
 RegisterCommand('sk8enginestate', function()
-    if not on then return say('not running') end
+    if not on then return say(have and 'not running; the server has the engine' or 'not running; the server has no engine') end
     if not pose then return say('running, no answer from the engine yet') end
     local seconds = math.max((GetGameTimer() - firstPose) / 1000.0, 0.001)
     say(('%s; board %.2f %.2f %.2f (Skate space), speed %.2f m/s; %d answers, %.0f a second; ground handed over %d times'):format(

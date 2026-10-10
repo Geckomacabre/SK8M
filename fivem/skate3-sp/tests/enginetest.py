@@ -1,9 +1,9 @@
-"""Skate 3's engine hosted by the resource (skateboard/engine.lua): what the script sends the page, and where it puts
-the board, the rider and the camera for what the page answers.
+"""Skate 3's engine, the player's side (skateboard/engine.lua): what the script sends the server, and where it puts
+the board, the rider and the camera for what the server answers.
 
-The engine itself is not run here (it is WebAssembly in the page: fivem/engine has its own checks, and the page side
-is checked in a browser). This test plays the page: it answers the script's messages with poses in Skate 3's space
-(metres, y up) and looks at what the script does in GTA's.
+The engine itself is not run here (it is WebAssembly run by the server script: fivem/engine has its own checks,
+test/server_node.cjs among them). This test plays the server: it takes the script's events, and answers with poses
+in Skate 3's space (metres, y up) to look at what the script does in GTA's.
 
 usage: python enginetest.py
 """
@@ -11,6 +11,22 @@ import math
 import sys
 
 import rig
+
+# The server, stood in for: what the script sends is kept in S.eng.
+SERVER = r'''
+return function(S)
+  S.eng = { starts = {}, pads = {}, grounds = {}, stops = 0 }
+  local env = setmetatable({}, { __index = _G })
+  local function reg(ev, fn) S.serverHandlers[ev] = { fn = fn, env = env } end
+  reg('skateboard:engAsk', function() end)
+  reg('skateboard:engStart', function(heading) S.eng.starts[#S.eng.starts + 1] = heading end)
+  reg('skateboard:engPads', function(samples) S.eng.pads[#S.eng.pads + 1] = samples end)
+  reg('skateboard:engGround', function(n, cell, x0, z0, none, h)
+    S.eng.grounds[#S.eng.grounds + 1] = { n = n, cell = cell, x0 = x0, z0 = z0, none = none, h = h }
+  end)
+  reg('skateboard:engStop', function() S.eng.stops = S.eng.stops + 1 end)
+end
+'''
 
 
 def qrot(q, v):
@@ -27,45 +43,66 @@ def xyz(v):
     return (v.x, v.y, v.z)
 
 
-def ride(r, label):
-    """Start the engine where the ped stands and answer as the page would. Returns False when a check fails."""
+def make(config="Config.Engine = true", patch=None, have=True):
+    """A rig with the server stood in for; have = the server says it has the engine."""
+    r = rig.make(config=config, patch=patch)
     sim, S = r.sim, r.sim.S
-    lua = sim.lua
-    answer = lua.eval("function(S, data) S.resources.skateboard.nuiCallbacks.eng(data, function() end) end")
-    table = lua.eval("function(k, n, s, r, v, c) return { k = k, n = n, s = s, r = r, v = v, c = c } end")
-    floats = lambda *values: lua.table_from(list(values))
+    sim.lua.execute("function _engine_server(S) " + SERVER.replace("return function(S)", "do").rstrip()[:-3] + " end end")
+    sim.lua.globals()._engine_server(S)
+    if have:
+        sim.lua.eval("function(S) S.resources.skateboard.handlers['skateboard:engHave'](true) end")(S)
+    S.keyboard = False
+    r.to_client = sim.lua.eval("function(S, ev, ...) S.resources.skateboard.handlers[ev](...) end")
+    r.floats = lambda *values: sim.lua.table_from(list(values))
+    return r
+
+
+def ride(r, label):
+    """Start the engine where the ped stands and answer as the server would. Returns False when a check fails."""
+    sim, S = r.sim, r.sim.S
+    pose = lambda n, state, root, v, c: r.to_client(S, 'skateboard:engPose', n, state, root, v, c)
     r.frame(5)
     ped = sim.run('skateboard', 'return PlayerPedId()')
     start = xyz(sim.ent(ped).pos)
     heading = sim.ent(ped).heading
-    before = len(list(S.nui.values()))
     sim.command('sk8engine')
     r.frame(3)
-    sent = [m for m in list(S.nui.values())[before:] if m.t == 'eng']
-    ok = r.check("%s: /sk8engine tells the page to start the engine with skate3_assets' files, facing the way the "
-                 "ped faces (GTA %.0f = Skate %.3f rad)" % (label, heading, sent[0].heading if sent else -1),
-                 bool(sent) and sent[0].op == 'start' and sent[0].base == 'https://cfx-nui-skate3_assets/engine/'
-                 and abs(sent[0].heading - math.radians(heading + 180.0)) < 1e-4)
-    pads = [m for m in sent if m.op == 'pad']
-    ok &= r.check("... and hands it the pad every frame (%d in 3 frames), nothing pressed" % len(pads),
-                  len(pads) >= 2 and all(m.buttons == 0 and m.lx == 0 and m.ry == 0 for m in pads))
+    starts = list(S.eng.starts.values())
+    ok = r.check("%s: /sk8engine asks the server for a rider facing the way the ped faces (GTA %.0f = Skate %.3f rad)" % (
+        label, heading, starts[0] if starts else -1),
+        len(starts) == 1 and abs(starts[0] - math.radians(heading + 180.0)) < 1e-4)
+    ok &= r.check("with nothing on the pad, nothing about the pad is sent (%d messages)" % len(list(S.eng.pads.values())),
+                  len(list(S.eng.pads.values())) == 0)
     board = sim.run('skateboard', 'return Engine.board()')
     ok &= r.check("a board is made for it, with no collision of its own", board is not None and sim.ent(board).collision is False)
     r.frame(20)
-    grounds = [m for m in list(S.nui.values())[before:] if m.t == 'eng' and m.op == 'ground']
-    h = list(grounds[0].h.values()) if grounds else []
+    grounds = list(S.eng.grounds.values())
     g = grounds[0] if grounds else None
-    ok &= r.check("within 20 frames the ground round the board is handed over once: %d x %d samples %.1f m apart, "
-                  "from %.1f m west and %.1f m north of the start, all at the start's height (%d of them)" % (
+    h = list(g.h.values()) if g else []
+    ok &= r.check("within 20 frames the ground round the board is sent once: %d x %d samples %.1f m apart, from "
+                  "%.1f m west and %.1f m north of the start, all at the start's height (%d of them)" % (
                       g.n if g else 0, g.n if g else 0, g.cell if g else 0, -g.x0 if g else 0, -g.z0 if g else 0, len(h)),
                   len(grounds) == 1 and g.n == 41 and len(h) == 41 * 41 and all(abs(v) < 0.02 for v in h)
                   and abs(g.x0 + 10.0) < 1.01 and abs(g.z0 + 10.0) < 1.01)
     origin = (start[0], start[1], xyz(sim.ent(board).pos)[2])    # (the board is made on the ground under the ped)
 
+    # the pad: A held for a quarter of a second
+    sim.hold(223)
+    r.frame(15)
+    sim.hold(223, False)
+    r.frame(6)
+    sent = [list(m.values()) for m in S.eng.pads.values()]
+    flat = [v for m in sent for v in m]
+    downs = [flat[i] == 0x1000 for i in range(0, len(flat), 7)]
+    ok &= r.check("A held for a quarter of a second: only the changes are sent, two samples of the pad to a message "
+                  "(%d messages: the press, then, with nothing sent while it is held, the release)" % len(sent),
+                  len(sent) == 2 and all(len(m) == 14 for m in sent) and any(downs[:2]) and downs[1]
+                  and not downs[-1] and flat[1:7] == [0] * 6)
+
     # the board standing at Skate (1, 0.087, 2), level, nose along Skate +z; the camera 4 m behind and 2 m up
-    level = floats(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1.0, 0.087, 2.0, 1)
-    camera = floats(0, 2, -4, 1, 0, 0, 0, 1, 0, 0, 0, 1, 60)
-    answer(S, table('pose', 1, 'PhysicsGround', level, floats(0, 0, 0), camera))
+    level = r.floats(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1.0, 0.087, 2.0, 1)
+    camera = r.floats(0, 2, -4, 1, 0, 0, 0, 1, 0, 0, 0, 1, 60)
+    pose(1, 'PhysicsGround', level, r.floats(0, 0, 0), camera)
     r.frame(1)
     e = sim.ent(board)
     q = tuple(e.q.values())
@@ -86,7 +123,7 @@ def ride(r, label):
                   and near(xyz(cam.rot), (0.0, 0.0, 180.0)) and abs(cam.fov - 60.0) < 1e-3)
 
     # rolling at 5 m/s along Skate +z, drawn a frame later: carried on by the speed; the rider turns that way
-    answer(S, table('pose', 2, 'PhysicsGround', level, floats(0, 0, 5), camera))
+    pose(2, 'PhysicsGround', level, r.floats(0, 0, 5), camera)
     r.frame(1)
     lead = origin[1] - 2.0 - xyz(sim.ent(board).pos)[1]
     ok &= r.check("an answer drawn a frame after it came is carried on by the board's speed (%.3f m further south)" % lead,
@@ -95,8 +132,8 @@ def ride(r, label):
                   abs(sim.ent(ped).heading - 180.0) < 1e-3)
 
     # the board rolled a quarter turn about its nose (a flip half way): its top faces GTA west; the rider stays upright
-    rolled = floats(0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 1, 0, 0.0, 0.6, 0.0, 1)
-    answer(S, table('pose', 3, 'KnownAir', rolled, floats(0, 0, 0), camera))
+    rolled = r.floats(0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 1, 0, 0.0, 0.6, 0.0, 1)
+    pose(3, 'KnownAir', rolled, r.floats(0, 0, 0), camera)
     r.frame(1)
     q = tuple(sim.ent(board).q.values())
     ok &= r.check("a board rolled on its side is drawn on its side (top to the west, nose still south)",
@@ -108,14 +145,13 @@ def ride(r, label):
 
     sim.command('sk8engine')
     r.frame(2)
-    stops = [m for m in list(S.nui.values()) if m.t == 'eng' and m.op == 'stop']
-    ok &= r.check("/sk8engine again ends it: the page is told, the board and the camera are gone",
-                  len(stops) == 1 and S.ent[board] is None and S.cam is None)
+    ok &= r.check("/sk8engine again ends it: the server is told, the board and the camera are gone",
+                  S.eng.stops == 1 and S.ent[board] is None and S.cam is None)
     return ok
 
 
 def main():
-    r = rig.make(config="Config.Engine = true")
+    r = make()
     ok = ride(r, "engine")
     misuse = r.sim.violations()
     ok &= r.check("no native misuse (%d) %s" % (len(misuse), misuse[:3]), not misuse)
@@ -125,45 +161,56 @@ def main():
     print("      the engine's lines: " + " | ".join(l.split('engine: ', 1)[1][:60] for l in said))
 
     # control: with Skate's z taken for GTA's y (north for south), the same checks must fail
-    changed = []
-
     def swapped(src):
         a = "local function gta(x, y, z) return x, -z, y end"
-        if a not in src:           # (skate3_assets has a file of the same name: its export of where the engine is)
-            return src + "-- (not the file under test)"
-        changed.append(1)
+        assert src.count(a) == 1
         return src.replace(a, "local function gta(x, y, z) return x, z, y end")
     print("control: Skate +z taken for GTA north")
-    c = rig.make(patch={'engine.lua': swapped}, config="Config.Engine = true")
-    wrong = not ride(c, "control") and len(changed) == 1
+    wrong = not ride(make(patch={'engine.lua': swapped}), "control")
     print(("OK  " if wrong else "BAD ") + "the control fails the placement checks")
     ok &= wrong
 
     # getting on the board the ordinary way starts the engine when it is switched on, and gets off it again
-    r3 = rig.make(config="Config.Engine = true")
+    r3 = make()
     r3.frame(5)
     r3.sim.command('skateboard')
     r3.frame(3)
-    eng = [m for m in list(r3.sim.S.nui.values()) if m.t == 'eng' and m.op == 'start']
-    ok &= r3.check("with Config.Engine on, the get-on key starts the engine and not the resource's own ride",
-                   len(eng) == 1 and not r3.state().riding and r3.sim.run('skateboard', 'return Engine.active()'))
+    ok &= r3.check("with Config.Engine on and a server that has the engine, the get-on key asks the server for a rider "
+                   "and does not start the resource's own ride",
+                   len(list(r3.sim.S.eng.starts.values())) == 1 and not r3.state().riding
+                   and r3.sim.run('skateboard', 'return Engine.active()'))
     r3.sim.command('skateboard')
     r3.frame(3)
     ok &= r3.check("... and the same key again ends it", not r3.sim.run('skateboard', 'return Engine.active()'))
-    r4 = rig.make()
+
+    # the server has no rider to spare: the resource's own ride instead
+    r5 = make()
+    r5.frame(5)
+    r5.sim.command('skateboard')
+    r5.frame(2)
+    r5.to_client(r5.sim.S, 'skateboard:engError', 'busy')
+    r5.frame(6)
+    ok &= r5.check("told the engine is busy before it ever answered, the rider is put on the resource's own ride",
+                   r5.state().riding and not r5.sim.run('skateboard', 'return Engine.active()'))
+
+    r4 = make(config="")
     r4.frame(5)
     r4.sim.command('skateboard')
     r4.frame(5)
     ok &= r4.check("with Config.Engine off, the get-on key starts the resource's own ride as before",
-                   r4.state().riding and not [m for m in list(r4.sim.S.nui.values()) if m.t == 'eng'])
-    r2 = rig.make(config="Config.Engine = true")
+                   r4.state().riding and not list(r4.sim.S.eng.starts.values()))
+    r6 = make(have=False)
+    r6.frame(5)
+    r6.sim.command('skateboard')
+    r6.frame(5)
+    ok &= r6.check("on a server without the engine, the get-on key starts the resource's own ride",
+                   r6.state().riding and not list(r6.sim.S.eng.starts.values()))
+    r2 = make()
     r2.frame(5)
     r2.get_on()
-    before = len(list(r2.sim.S.nui.values()))
     r2.sim.command('sk8engine')
     r2.frame(2)
-    started = [m for m in list(r2.sim.S.nui.values())[before:] if m.t == 'eng']
-    ok &= r2.check("on the ordinary board, /sk8engine does not start the engine", not started)
+    ok &= r2.check("on the ordinary board, /sk8engine does not start the engine", not list(r2.sim.S.eng.starts.values()))
     print("RESULT:", "ok" if ok else "FAILED")
     return 0 if ok else 1
 

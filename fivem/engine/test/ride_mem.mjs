@@ -44,8 +44,8 @@ const trisPtr = e.sk8m_alloc(floor.length * 4);
 floats().set(floor, trisPtr / 4);
 const root = new TextEncoder().encode('/assets'), rootPtr = e.sk8m_alloc(root.length);
 bytes().set(root, rootPtr);
-check(e.sk8m_load(rootPtr, root.length, trisPtr, 2, 0, 0, 0, 0, 0, 0), 'load');
-const period = e.sk8m_period(), hz = Math.round(1 / period);
+check(e.sk8m_load(0, rootPtr, root.length, trisPtr, 2, 0, 0, 0, 0, 0, 0), 'load');
+const period = e.sk8m_period(0), hz = Math.round(1 / period);
 const cap = 16 + 3 + 13 + 64 * 16, posePtr = e.sk8m_alloc(cap * 4);
 let topSpeed = 0, topHeight = -1e9, last = null;
 for (let tick = 0; tick < hz * 16; tick++) {
@@ -54,8 +54,8 @@ for (let tick = 0; tick < hz * 16; tick++) {
   for (const push of [1, 2, 3]) if (t >= push && t < push + 0.25) buttons = 0x1000;
   if (t >= 7 && t < 8.5) lx = 20000;
   if (t >= 11 && t < 11.4) ry = -32767; else if (t >= 11.4 && t < 11.5) ry = 32767;
-  check(e.sk8m_tick(buttons, 0, 0, lx, 0, 0, ry), 'tick');
-  e.sk8m_pose(posePtr, cap);
+  check(e.sk8m_tick(0, buttons, 0, 0, lx, 0, 0, ry), 'tick');
+  e.sk8m_pose(0, posePtr, cap);
   const f = floats().subarray(posePtr / 4, posePtr / 4 + cap);
   topSpeed = Math.max(topSpeed, Math.hypot(f[16], f[17], f[18]));
   topHeight = Math.max(topHeight, f[13]);

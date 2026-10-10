@@ -206,8 +206,6 @@ def make(stock=False, goofy=False, offset=(0.0, 0.0, 0.0), patch=None, config=''
             files.append(os.path.join(ASSETS, "sounds.lua"))
         if decks and os.path.exists(os.path.join(ASSETS, "decks.lua")):
             files.append(os.path.join(ASSETS, "decks.lua"))
-        if os.path.exists(os.path.join(ASSETS, "engine.lua")):   # (built with Skate 3's engine staged)
-            files.append(os.path.join(ASSETS, "engine.lua"))
         files.append(os.path.join(ASSETS, "s3_player.lua"))
         sim.resource('skate3_assets', files, patch=patch)
         sim.S.tracks = sim.run('skate3_assets', 'return SkateBoardTracks')

@@ -61,31 +61,31 @@ export async function loadEngine({ wasm, data, progress = () => {}, log = () => 
       const root = new TextEncoder().encode('/assets'), rootPtr = e.sk8m_alloc(root.length);
       bytes().set(root, rootPtr);
       const packed = packRails(rails);
-      withFloats(triangles, (tris) => withFloats(packed, (railPtr) => check(e.sk8m_load(rootPtr, root.length, tris,
+      withFloats(triangles, (tris) => withFloats(packed, (railPtr) => check(e.sk8m_load(0, rootPtr, root.length, tris,
         triangles.length / 9, railPtr, packed.length, place[0], place[1], place[2], heading), 'load')));
       e.sk8m_free(rootPtr, root.length);
       posePtr = e.sk8m_alloc(POSE_FLOATS * 4);
-      this.period = e.sk8m_period();
-      names = text(e.sk8m_bone_names).split('\n');
+      this.period = e.sk8m_period(0);
+      names = text((p, c) => e.sk8m_bone_names(0, p, c)).split('\n');
       this.names = names;
     },
     world(triangles, rails) {
       const packed = packRails(rails);
       withFloats(triangles, (tris) => withFloats(packed, (railPtr) =>
-        check(e.sk8m_world(tris, triangles.length / 9, railPtr, packed.length), 'world')));
+        check(e.sk8m_world(0, tris, triangles.length / 9, railPtr, packed.length), 'world')));
     },
     place(position, heading) {
-      check(e.sk8m_place(position[0], position[1], position[2], heading), 'place');
+      check(e.sk8m_place(0, position[0], position[1], position[2], heading), 'place');
     },
     tick(pad) {
-      check(e.sk8m_tick(pad.buttons | 0, pad.lt | 0, pad.rt | 0, pad.lx | 0, pad.ly | 0, pad.rx | 0, pad.ry | 0), 'tick');
+      check(e.sk8m_tick(0, pad.buttons | 0, pad.lt | 0, pad.rt | 0, pad.lx | 0, pad.ly | 0, pad.rx | 0, pad.ry | 0), 'tick');
     },
     pose() {
-      const count = e.sk8m_pose(posePtr, POSE_FLOATS);
+      const count = e.sk8m_pose(0, posePtr, POSE_FLOATS);
       const f = floats().subarray(posePtr / 4, posePtr / 4 + POSE_FLOATS);
       return { root: f.subarray(0, 16), velocity: f.subarray(16, 19), cameraAt: f.subarray(19, 22),
         cameraBasis: f.subarray(22, 31), fov: f[31], bones: f.subarray(32, 32 + count * 16), count,
-        state: text(e.sk8m_state) };
+        state: text((p, c) => e.sk8m_state(0, p, c)) };
     },
     period: 0,
     names,

@@ -41,11 +41,11 @@ function grid(n, cell, cx, cz, height) {
 const root = new TextEncoder().encode('/assets'), rootPtr = e.sk8m_alloc(root.length);
 bytes().set(root, rootPtr);
 const flat = gridTriangles(grid(41, 0.5, 0, 0, () => 0));
-withFloats(flat, (p) => check(e.sk8m_load(rootPtr, root.length, p, flat.length / 9, 0, 0, 0, 0, 0, 0), 'load'));
-const period = e.sk8m_period(), hz = Math.round(1 / period);
+withFloats(flat, (p) => check(e.sk8m_load(0, rootPtr, root.length, p, flat.length / 9, 0, 0, 0, 0, 0, 0), 'load'));
+const period = e.sk8m_period(0), hz = Math.round(1 / period);
 const cap = 16 + 3 + 13 + 64 * 16, posePtr = e.sk8m_alloc(cap * 4);
-const pose = () => { e.sk8m_pose(posePtr, cap); return floats().subarray(posePtr / 4, posePtr / 4 + cap); };
-const tick = (buttons = 0, lx = 0) => check(e.sk8m_tick(buttons, 0, 0, lx, 0, 0, 0), 'tick');
+const pose = () => { e.sk8m_pose(0, posePtr, cap); return floats().subarray(posePtr / 4, posePtr / 4 + cap); };
+const tick = (buttons = 0, lx = 0) => check(e.sk8m_tick(0, buttons, 0, 0, lx, 0, 0, 0), 'tick');
 let ok = true;
 const report = (label, good) => { ok = ok && good; console.log((good ? 'OK  ' : 'BAD ') + label); };
 
@@ -56,7 +56,7 @@ let worst = 0, total = 0;
 for (let i = 0; i < 20; i++) {
   const tris = gridTriangles(grid(41, 0.5, 0, 0, () => 0));
   const t = performance.now();
-  withFloats(tris, (p) => check(e.sk8m_world(p, tris.length / 9, 0, 0), 'world'));
+  withFloats(tris, (p) => check(e.sk8m_world(0, p, tris.length / 9, 0, 0), 'world'));
   const ms = performance.now() - t;
   worst = Math.max(worst, ms);
   total += ms;
@@ -74,9 +74,9 @@ function follow(height) {
   const p = pose();
   const cx = Math.round(p[12] / 2) * 2, cz = Math.round(p[14] / 2) * 2;        // (windows 2 m apart)
   const tris = gridTriangles(grid(41, 0.5, cx, cz, height));
-  withFloats(tris, (q) => check(e.sk8m_world(q, tris.length / 9, 0, 0), 'world'));
+  withFloats(tris, (q) => check(e.sk8m_world(0, q, tris.length / 9, 0, 0), 'world'));
 }
-check(e.sk8m_place(0, 0.05, 0, 0), 'place');
+check(e.sk8m_place(0, 0, 0.05, 0, 0), 'place');
 follow(slope);
 for (let i = 0; i < hz * 6; i++) {
   if (i % 6 === 0) follow(slope);
@@ -84,12 +84,12 @@ for (let i = 0; i < hz * 6; i++) {
 }
 let p = pose();
 report(`on a 1 in 10 slope it rolls off downhill by itself (${p[14].toFixed(1)} m in 6 s, ${Math.hypot(p[16], p[17], p[18]).toFixed(1)} m/s, ` +
-  `${(p[13] - slope(p[12], p[14])).toFixed(2)} m above the slope, ${text(e.sk8m_state)})`,
+  `${(p[13] - slope(p[12], p[14])).toFixed(2)} m above the slope, ${text((p, c) => e.sk8m_state(0, p, c))})`,
   p[14] > 5 && Math.abs(p[13] - slope(p[12], p[14]) - 0.087) < 0.06);
 
 // 3. a kerb: 15 cm up across one cell, met at speed
 const kerb = (x, z) => (z > 12 ? 0.15 : 0);
-check(e.sk8m_place(0, 0.05, 0, 0), 'place');
+check(e.sk8m_place(0, 0, 0.05, 0, 0), 'place');
 follow(kerb);
 for (let i = 0; i < hz * 8; i++) {
   if (i % 6 === 0) follow(kerb);
@@ -98,6 +98,6 @@ for (let i = 0; i < hz * 8; i++) {
 }
 p = pose();
 report(`a 15 cm kerb sampled half a metre apart is ridden up (at z ${p[14].toFixed(1)}, ${(p[13] - 0.087).toFixed(2)} m up, ` +
-  `${Math.hypot(p[16], p[17], p[18]).toFixed(1)} m/s, ${text(e.sk8m_state)})`, p[14] > 14 && Math.abs(p[13] - 0.087 - 0.15) < 0.06);
+  `${Math.hypot(p[16], p[17], p[18]).toFixed(1)} m/s, ${text((p, c) => e.sk8m_state(0, p, c))})`, p[14] > 14 && Math.abs(p[13] - 0.087 - 0.15) < 0.06);
 console.log('RESULT: ' + (ok ? 'ok' : 'FAILED'));
 process.exit(ok ? 0 : 1);

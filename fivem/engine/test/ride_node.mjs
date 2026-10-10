@@ -33,8 +33,8 @@ const rootPtr = e.sk8m_alloc(root.length);
 bytes().set(root, rootPtr);
 
 let started = performance.now();
-check(e.sk8m_load(rootPtr, root.length, trisPtr, 2, 0, 0, 0, 0, 0, 0), 'load');
-const period = e.sk8m_period();
+check(e.sk8m_load(0, rootPtr, root.length, trisPtr, 2, 0, 0, 0, 0, 0, 0), 'load');
+const period = e.sk8m_period(0);
 console.log(`loaded in ${((performance.now() - started) / 1000).toFixed(1)} s; one tick = ${period.toFixed(5)} s`);
 
 const cap = 16 + 3 + 13 + 64 * 16, posePtr = e.sk8m_alloc(cap * 4);
@@ -48,18 +48,18 @@ for (let tick = 0; tick < ticks; tick++) {
   for (const push of [1, 2, 3]) if (t >= push && t < push + 0.25) buttons = A;
   if (t >= 7 && t < 8.5) lx = 20000;
   if (t >= 11 && t < 11.4) ry = -32767; else if (t >= 11.4 && t < 11.5) ry = 32767;
-  check(e.sk8m_tick(buttons, 0, 0, lx, 0, 0, ry), 'tick');
-  const bones = e.sk8m_pose(posePtr, cap);
+  check(e.sk8m_tick(0, buttons, 0, 0, lx, 0, 0, ry), 'tick');
+  const bones = e.sk8m_pose(0, posePtr, cap);
   const f = floats().subarray(posePtr / 4, posePtr / 4 + cap);
   const speed = Math.hypot(f[16], f[17], f[18]);
   topSpeed = Math.max(topSpeed, speed);
   topHeight = Math.max(topHeight, f[13]);
   if (tick % (hz / 2) === 0) {
     console.log(`t ${t.toFixed(2).padStart(5)}  pos ${f[12].toFixed(3).padStart(8)} ${f[13].toFixed(3).padStart(7)} ` +
-      `${f[14].toFixed(3).padStart(8)}  speed ${speed.toFixed(3).padStart(6)}  ${bones} bones  ${text(e.sk8m_state)}`);
+      `${f[14].toFixed(3).padStart(8)}  speed ${speed.toFixed(3).padStart(6)}  ${bones} bones  ${text((p, c) => e.sk8m_state(0, p, c))}`);
   }
 }
 const ms = (performance.now() - started) / ticks;
 console.log(`top speed ${topSpeed.toFixed(3)} m/s, highest root ${topHeight.toFixed(3)} m`);
 console.log(`${ms.toFixed(3)} ms a tick (${(ms / (period * 1000) * 100).toFixed(1)} % of real time)`);
-console.log('bones: ' + text(e.sk8m_bone_names).split('\n').join(' '));
+console.log('bones: ' + text((p, c) => e.sk8m_bone_names(0, p, c)).split('\n').join(' '));
