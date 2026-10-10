@@ -1,0 +1,9 @@
+[package]
+name = "bevy_math"
+version = "0.19.0"
+edition = "2024"
+publish = false
+description = "bevy_math's vector types are glam's. SK8V's geometry files name bevy_math; this hands them glam, as the bevy stand-in does."
+
+[dependencies]
+glam = "0.30"

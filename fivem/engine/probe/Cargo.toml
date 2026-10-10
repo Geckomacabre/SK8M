@@ -7,7 +7,7 @@ publish = false
 [workspace]
 
 [dependencies]
-skate-host = { path = "../upstream/2010-rust-rewrite-mashup/skate/crates/skate-host" }
+skate-host = { path = "../overlay/skate/crates/skate-host" }
 
 [profile.release]
 opt-level = 2

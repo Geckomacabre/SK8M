@@ -56,18 +56,26 @@ builds it as one WebAssembly file, and that is where this project is heading: th
 trick logic give way to the engine's.
 
 FiveM's in-game browser has WebAssembly switched off, so the engine runs on the **server**. A player's game sends
-its pad and the ground round the board; the server sends back where the board is. The Skate 3 data the engine
-reads stays on the server and is never sent to players.
+its pad; the server sends back where the board is. The Skate 3 data the engine reads stays on the server and is
+never sent to players.
+
+The engine is built with SK8V's own 43 patches to it, and the world it rides is GTA's own collision: the server
+owner bakes the map once from their GTA V with SK8V's tools, with SK8V's rail finder run over all of it, so a
+kerb is a kerb and ledges and handrails grind. Where a player's game finds the ground somewhere else than the
+baked map has it (a map the server adds), the ground is a grid of heights that game finds with rays.
 
 Done: the engine loads a PS3 disc's data and rides (pushes, carving, ollies) with identical results natively,
 under Node and in a browser; the server script runs it for several riders; getting on the board starts it
-(`Config.Engine`), on ground found by rays round the board. To do: the rider's animations (the rider is held in
-the riding stance for now), grinds, other players seeing the board, and the map's real collision.
+(`Config.Engine`), and it has been ridden through Los Santos on a live server on the rays' ground. The baked map
+and the rider playing the clip the engine names pass their checks outside the game and have not been watched in
+the game yet. To do: blending between clips, smoothing between the server's answers (FXServer sends them 20
+times a second), props and vehicles in the engine's world, sounds and score from the engine, other players
+seeing the board.
 
-Three things will differ from SK8V. A FiveM script cannot set a character's bones, so the rider is shown by
-playing the converted clips the engine picks, not its exact blended pose. GTA's collision has to be prepared
-instead of being read from the running game. And what a player does reaches the engine over the network, a few
-hundredths of a second plus their ping later.
+Three things differ from SK8V. A FiveM script cannot set a character's bones, so the rider is shown by playing
+the converted clips the engine picks, not its exact blended pose. GTA's collision is baked ahead of time instead
+of being read from the running game, so it is Story Mode's map and has no props in it. And what a player does
+reaches the engine over the network, a few hundredths of a second plus their ping later.
 
 ## How the animations are fitted
 

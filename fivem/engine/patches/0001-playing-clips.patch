@@ -1,0 +1,88 @@
+diff --git a/crates/skate-host/src/physics/bridge.rs b/crates/skate-host/src/physics/bridge.rs
+index c7d008f..9903dce 100644
+--- a/crates/skate-host/src/physics/bridge.rs
++++ b/crates/skate-host/src/physics/bridge.rs
+@@ -202,6 +202,54 @@ impl Session {
+         );
+         self.advance_published()
+     }
++    /// The clips this tick's pose is blended from: name, time in the clip (seconds), share of the pose (0..1)
++    /// and whether it is played mirrored. For a host that cannot set bones and plays the clips itself.
++    pub fn clips(&self) -> Vec<(String, f32, f32, bool)> {
++        use skate_core::animation::playback_tree::PoseCommand;
++        let mut stack: Vec<Vec<(String, f32, f32, bool)>> = Vec::new();
++        for command in &self.skater.animation.last_commands {
++            match command {
++                PoseCommand::Clip { name, time, .. } => stack.push(vec![(name.clone(), *time, 1.0, false)]),
++                PoseCommand::Pose { name } => stack.push(vec![(name.clone(), 0.0, 1.0, false)]),
++                // (an added pose changes the one under it; it has no share of its own)
++                PoseCommand::Add { .. } => {
++                    stack.pop();
++                }
++                PoseCommand::Mirror { .. } => {
++                    if let Some(top) = stack.last_mut() {
++                        for clip in top {
++                            clip.3 = !clip.3;
++                        }
++                    }
++                }
++                PoseCommand::WeightedBlend { weights } => {
++                    let start = stack.len().saturating_sub(weights.len());
++                    let parts: Vec<_> = stack.drain(start..).collect();
++                    let mut out = Vec::new();
++                    for (part, weight) in parts.into_iter().zip(weights) {
++                        for mut clip in part {
++                            clip.2 *= *weight;
++                            out.push(clip);
++                        }
++                    }
++                    stack.push(out);
++                }
++                PoseCommand::Blend { weight } | PoseCommand::ChannelBlend { weight, .. } => {
++                    let second = stack.pop().unwrap_or_default();
++                    let mut first = stack.pop().unwrap_or_default();
++                    for clip in &mut first {
++                        clip.2 *= 1.0 - *weight;
++                    }
++                    for mut clip in second {
++                        clip.2 *= *weight;
++                        first.push(clip);
++                    }
++                    stack.push(first);
++                }
++            }
++        }
++        stack.pop().unwrap_or_default()
++    }
+     /// SkateV: Skate's scoring publication for the host HUD (read-only).
+     pub fn score(&self) -> crate::scoring_runtime::View {
+         self.skater.scoring.view()
+diff --git a/crates/skate-host/src/skater_animation.rs b/crates/skate-host/src/skater_animation.rs
+index a12cec9..64849eb 100644
+--- a/crates/skate-host/src/skater_animation.rs
++++ b/crates/skate-host/src/skater_animation.rs
+@@ -76,6 +76,8 @@ pub(crate) struct SkaterAnimation {
+     pub evaluator: Arc<PoseEvaluator>,
+     pub source: Arc<AnimationSource>,
+     pub pose: Vec<Sqt>,
++    /// The commands the pose of this tick was made from (for a host that shows the rider by playing clips).
++    pub last_commands: Vec<PoseCommand>,
+     pub packet: PhysicsPosePacket,
+     pub attributes: PacketAttributes,
+     pub action_controller: Controller,
+@@ -192,6 +194,7 @@ impl SkaterAnimation {
+             evaluator,
+             source,
+             pose: Vec::new(),
++            last_commands: Vec::new(),
+             attributes: PacketAttributes::default(),
+             state,
+             action_controller: Controller::new(graphs.action.runtime.program.topology.states.len()),
+@@ -281,6 +284,7 @@ impl SkaterAnimation {
+             update_history: true,
+         })?;
+         self.pose = self.evaluator.evaluate(&commands)?;
++        self.last_commands = commands;
+         let hierarchy = self.evaluator.hierarchy(&self.pose)?;
+         let local: Vec<_> = self
+             .pose

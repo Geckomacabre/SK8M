@@ -1,0 +1,21 @@
+[package]
+name = "sk8m-bake"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "GTA V's map collision (SK8V's collision.svwc) made ready for Skate 3's engine: rails found, ramp toes added, doubled faces out."
+
+[workspace]
+
+[dependencies]
+# SK8V's tile file reader and its geometry files, copied beside the engine by tools/overlay.py
+svwc = { path = "../overlay/svwc" }
+# (SK8V's geometry files name bevy_math: glam's vectors)
+bevy_math = { path = "../shim/bevy_math" }
+# (SK8V's rail finder takes the wheel's radius from the engine)
+skate-core = { path = "../overlay/skate/crates/skate-core" }
+flate2 = "1"
+
+[profile.release]
+opt-level = 3
+debug = false

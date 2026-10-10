@@ -15,11 +15,17 @@ import rig
 # The server, stood in for: what the script sends is kept in S.eng.
 SERVER = r'''
 return function(S)
-  S.eng = { starts = {}, pads = {}, grounds = {}, stops = 0 }
+  S.eng = { starts = {}, places = {}, pads = {}, grounds = {}, rays = {}, stops = 0 }
   local env = setmetatable({}, { __index = _G })
   local function reg(ev, fn) S.serverHandlers[ev] = { fn = fn, env = env } end
   reg('skateboard:engAsk', function() end)
-  reg('skateboard:engStart', function(heading) S.eng.starts[#S.eng.starts + 1] = heading end)
+  reg('skateboard:engStart', function(heading, x, y, z)
+    S.eng.starts[#S.eng.starts + 1] = heading
+    S.eng.places[#S.eng.places + 1] = { x = x, y = y, z = z }
+  end)
+  reg('skateboard:engRays', function(x, y, z, heading, by)
+    S.eng.rays[#S.eng.rays + 1] = { x = x, y = y, z = z, heading = heading, by = by }
+  end)
   reg('skateboard:engPads', function(samples) S.eng.pads[#S.eng.pads + 1] = samples end)
   reg('skateboard:engGround', function(n, cell, x0, z0, none, h)
     S.eng.grounds[#S.eng.grounds + 1] = { n = n, cell = cell, x0 = x0, z0 = z0, none = none, h = h }
@@ -43,6 +49,25 @@ def xyz(v):
     return (v.x, v.y, v.z)
 
 
+def track_at(track, phase):
+    """A clip's board against the ped at a phase: its rotation and the middle of the deck's top (as s3_player's)."""
+    frames = track.frames
+    n = len(frames)
+    f = max(0.0, min(1.0, phase)) * (n - 1) + 1
+    i = max(1, min(int(math.floor(f)), n - 1))
+    a, b, t = frames[i], frames[min(i + 1, n)], f - i
+    sign = 1.0 if sum(a[k] * b[k] for k in range(1, 5)) >= 0.0 else -1.0
+    q = [a[k] + (sign * b[k] - a[k]) * t for k in range(1, 5)]
+    l = math.sqrt(sum(x * x for x in q))
+    return tuple(x / l for x in q), tuple(a[k] + (b[k] - a[k]) * t for k in range(5, 8))
+
+
+def turned(v, heading):
+    """A vector of an entity with this GTA heading (degrees), in the world."""
+    c, s = math.cos(math.radians(heading)), math.sin(math.radians(heading))
+    return (v[0] * c - v[1] * s, v[0] * s + v[1] * c, v[2])
+
+
 def make(config="Config.Engine = true", patch=None, have=True):
     """A rig with the server stood in for; have = the server says it has the engine."""
     r = rig.make(config=config, patch=patch)
@@ -60,7 +85,7 @@ def make(config="Config.Engine = true", patch=None, have=True):
 def ride(r, label):
     """Start the engine where the ped stands and answer as the server would. Returns False when a check fails."""
     sim, S = r.sim, r.sim.S
-    pose = lambda n, state, root, v, c: r.to_client(S, 'skateboard:engPose', n, state, root, v, c)
+    pose = lambda n, state, root, v, c, *clip: r.to_client(S, 'skateboard:engPose', n, state, root, v, c, *clip)
     r.frame(5)
     ped = sim.run('skateboard', 'return PlayerPedId()')
     start = xyz(sim.ent(ped).pos)
@@ -85,6 +110,9 @@ def ride(r, label):
                   len(grounds) == 1 and g.n == 41 and len(h) == 41 * 41 and all(abs(v) < 0.02 for v in h)
                   and abs(g.x0 + 10.0) < 1.01 and abs(g.z0 + 10.0) < 1.01)
     origin = (start[0], start[1], xyz(sim.ent(board).pos)[2])    # (the board is made on the ground under the ped)
+    place = list(S.eng.places.values())[0]
+    ok &= r.check("the server is told where in GTA's world that is, for its baked map (%.2f %.2f %.2f)" % (place.x, place.y, place.z),
+                  near((place.x, place.y), origin[:2], 0.01) and abs(place.z - origin[2]) < 0.3)
 
     # the pad: A held for a quarter of a second
     sim.hold(223)
@@ -139,6 +167,51 @@ def ride(r, label):
     ok &= r.check("a board rolled on its side is drawn on its side (top to the west, nose still south)",
                   near(qrot(q, (0, 0, 1)), (-1, 0, 0)) and near(qrot(q, (1, 0, 0)), (0, -1, 0)))
 
+    # the clip the engine plays: the ped plays the converted one, held at the engine's time in it, and is stood so
+    # that the clip's board is the engine's (the deck's middle on the engine's deck, tail to tail)
+    def fitted(n, state, root, at, tail, clip, seconds, what):
+        before = len(list(S.played.values()))
+        pose(n, state, root, r.floats(0, 0, 0), camera, clip, seconds, False)
+        r.frame(3)
+        a, p = S.anim, sim.ent(ped)
+        track = S.tracks[a.dict + '/' + a.clip]
+        length = (len(track.frames) - 1) / track.fps
+        held = a.clip == clip and a.speed == 0.0 and a.set is not None \
+            and seconds / length - 1e-3 <= a.set <= min((seconds + 0.05) / length, 0.999) + 1e-3
+        q, anchor = track_at(track, a.set or 0.0)
+        deck = tuple(x + y for x, y in zip(xyz(p.pos), turned(anchor, p.heading)))
+        want = (origin[0] + at[0], origin[1] - at[2], origin[2] + at[1] + 0.0122)
+        y = turned(qrot(q, (0, 1, 0)), p.heading)
+        l = math.hypot(y[0], y[1])
+        good = r.check("%s: the ped plays %s held at %.2f s of its %.2f s (phase %.3f), started %d time(s)" % (
+            what, a.clip, seconds, length, a.set or -1, len(list(S.played.values())) - before), held)
+        good &= r.check("   ... the clip's deck is the engine's (%.3f %.3f %.3f from it), the rider upright" % tuple(
+            d - w for d, w in zip(deck, want)), near(deck, want))
+        good &= r.check("   ... the clip's board lies tail to tail on the engine's (its tail end points %.2f %.2f, "
+                        "the engine's %.0f %.0f)" % (y[0] / l, y[1] / l, tail[0], tail[1]),
+                        near((y[0] / l, y[1] / l, 0.0), (tail[0], tail[1], 0.0), 2e-3))
+        return good, len(list(S.played.values())) - before
+    good, started = fitted(4, 'PhysicsGround', level, (1.0, 0.087, 2.0), (0, 1), 'r_idle_hcom_000', 0.30,
+                           "nose to Skate +z (GTA south)")
+    ok &= good and r.check("   ... the clip is started once", started == 1)
+    good, started = fitted(5, 'PhysicsGround', level, (1.0, 0.087, 2.0), (0, 1), 'r_idle_hcom_000', 0.60, "later in the same clip")
+    ok &= good and r.check("   ... it is not started again: only its time is set", started == 0)
+    east = r.floats(0, 0, -1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 3.0, 0.087, -1.0, 1)
+    good, started = fitted(6, 'PhysicsGround', east, (3.0, 0.087, -1.0), (-1, 0), 'r_idle_hcom_p100', 0.10,
+                           "nose to Skate +x (GTA east), another clip")
+    ok &= good and r.check("   ... which is started once", started == 1)
+    pop = r.floats(0, 0, -1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 3.0, 0.9, -1.0, 1)
+    good, _ = fitted(7, 'KnownAir', pop, (3.0, 0.9, -1.0), (-1, 0), 'ollie_high_a', 0.20, "0.9 m up in an ollie")
+    ok &= good
+    before = len(list(S.played.values()))
+    pose(8, 'KnownAir', pop, r.floats(0, 0, 0), camera, 'not_a_clip_of_skate_3', 0.10, False)
+    r.frame(3)
+    pose(9, 'KnownAir', pop, r.floats(0, 0, 0), camera, 'not_a_clip_of_skate_3', 0.15, False)
+    r.frame(3)
+    lines = [l for l in sim.prints() if 'no converted clip not_a_clip_of_skate_3' in l]
+    ok &= r.check("a clip that was not converted: the last one stays (%s), nothing is started, and it is said once (%d)" % (
+        S.anim.clip, len(lines)), S.anim.clip == 'ollie_high_a' and len(list(S.played.values())) == before and len(lines) == 1)
+
     # the normal ride does not start meanwhile
     r.get_on()
     ok &= r.check("getting on the ordinary board does nothing while the engine has the rider", not r.state().riding)
@@ -170,6 +243,17 @@ def main():
     print(("OK  " if wrong else "BAD ") + "the control fails the placement checks")
     ok &= wrong
 
+    # control: with the clips' board taken to be nose first (it is tail first), the rider must come out the wrong
+    # way round and the tail-to-tail check fail
+    def nose_first(src):
+        a = "heading(-nx, -ny) - heading(tx, ty)"
+        assert src.count(a) == 1
+        return src.replace(a, "heading(nx, ny) - heading(tx, ty)")
+    print("control: the clips' board taken to be nose first")
+    wrong = not ride(make(patch={'engine.lua': nose_first}), "control")
+    print(("OK  " if wrong else "BAD ") + "the control fails the tail-to-tail check")
+    ok &= wrong
+
     # getting on the board the ordinary way starts the engine when it is switched on, and gets off it again
     r3 = make()
     r3.frame(5)
@@ -192,6 +276,52 @@ def main():
     r5.frame(6)
     ok &= r5.check("told the engine is busy before it ever answered, the rider is put on the resource's own ride",
                    r5.state().riding and not r5.sim.run('skateboard', 'return Engine.active()'))
+
+    # the server's baked map: no ground is sent while this game's ground is where the engine has the board, and the
+    # server is told when it is not
+    def on_map(label, patch=None):
+        rb = make(patch=patch)
+        sim, S = rb.sim, rb.sim.S
+        rb.frame(5)
+        sim.command('sk8engine')
+        rb.frame(3)
+        rb.to_client(S, 'skateboard:engReady', 1.0 / 60.0, 5, True)
+        camera = rb.floats(0, 2, -4, 1, 0, 0, 0, 1, 0, 0, 0, 1, 60)
+        at = lambda n, state, up: rb.to_client(S, 'skateboard:engPose', n, state, rb.floats(
+            1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1.0, 0.087 + up, 2.0, 1), rb.floats(0, 0, 0), camera, 'r_idle_hcom_000', 0.0, False)
+        for n in range(90):
+            at(n, 'PhysicsGround', 0.0)
+            rb.frame(1)
+        good = rb.check("%s: on the server's baked map, with the board on this game's ground, no ground is sent and nothing is "
+                        "reported (%d grounds, %d reports in 90 frames)" % (label, len(list(S.eng.grounds.values())), len(list(S.eng.rays.values()))),
+                        not list(S.eng.grounds.values()) and not list(S.eng.rays.values()))
+        for n in range(90):
+            at(100 + n, 'PhysicsAir', 1.0)
+            rb.frame(1)
+        good &= rb.check("a board a metre up in the air is not a map that is off (%d reports)" % len(list(S.eng.rays.values())),
+                         not list(S.eng.rays.values()))
+        for n in range(120):
+            at(200 + n, 'PhysicsGround', 1.0)
+            rb.frame(1)
+        rays = list(S.eng.rays.values())
+        ray = rays[0] if rays else None
+        good &= rb.check("the engine rolling a metre over this game's ground: the server is told once, with the ground under the "
+                         "board in Skate's space and how far off the map is (%s)" % (
+                             "%.2f %.2f %.2f, %.2f m" % (ray.x, ray.y, ray.z, ray.by) if ray else "nothing sent"),
+                         len(rays) == 1 and near((ray.x, ray.z), (1.0, 2.0), 0.01) and abs(ray.y) < 0.05 and abs(ray.by - 1.0) < 0.05)
+        good &= rb.check("... and from then on this game's ground is sent (%d)" % len(list(S.eng.grounds.values())),
+                         len(list(S.eng.grounds.values())) >= 1)
+        return good
+    ok &= on_map("baked map")
+
+    def never_off(src):
+        a = "math.abs(gap) > 0.4"
+        assert src.count(a) == 1
+        return src.replace(a, "math.abs(gap) > 4.0")
+    print("control: a map taken to be off only when it is 4 m off")
+    wrong = not on_map("control", patch={'engine.lua': never_off})
+    print(("OK  " if wrong else "BAD ") + "the control fails the report check")
+    ok &= wrong
 
     r4 = make(config="")
     r4.frame(5)

@@ -135,6 +135,11 @@ def main():
     # sent to a player.
     have_engine = (os.path.exists(os.path.join(paths.ENGINE, "sk8m_runtime.wasm"))
                    and os.path.exists(os.path.join(paths.ENGINE, "data", "files.json")))
+    # (the baked map, fivem/engine/tools/bake_collision.py, is put beside the engine by hand and is 600 MB: it is
+    # kept through a build)
+    world, aside = os.path.join(res, "engine", "world.sk8w"), os.path.join(res, "world.sk8w.kept")
+    if os.path.exists(world):
+        os.replace(world, aside)
     shutil.rmtree(os.path.join(res, "engine"), ignore_errors=True)
     if have_engine:
         os.makedirs(os.path.join(res, "engine"))
@@ -144,6 +149,9 @@ def main():
             for name in names:                                                  # the page makes those itself)
                 if os.path.getsize(os.path.join(folder, name)) == 0:
                     os.remove(os.path.join(folder, name))
+    if os.path.exists(aside):
+        os.makedirs(os.path.join(res, "engine"), exist_ok=True)
+        os.replace(aside, world)
     if os.path.exists(os.path.join(res, "engine.lua")):      # (of the build that ran the engine in the page)
         os.remove(os.path.join(res, "engine.lua"))
     open(os.path.join(res, "fxmanifest.lua"), "w").write(MANIFEST % {

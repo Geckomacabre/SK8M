@@ -1,5 +1,9 @@
-# fetched sources, build output, and everything made from the disc
+# fetched sources, the patched copy of them, build output, and everything made from the disc
 upstream/
+overlay/
+sk8v/
+*.sk8w
+*.svwc
 target/
 web/data/
 *.wasm

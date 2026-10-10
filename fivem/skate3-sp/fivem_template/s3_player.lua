@@ -766,6 +766,15 @@ exports('Phase', Phase)
 exports('HasClip', HasClip)
 exports('ClipDict', ClipDict)
 exports('ClipLength', ClipLength)
+-- A clip's board against the ped at a phase (0..1): its rotation (x, y, z, w; the board's long axis is y, its tail
+-- end +y, its left side +x) and the middle of the deck's top under the feet, both in the ped's own space. For a
+-- script that has the board from elsewhere (Skate 3's engine) and stands the ped on it. nil without the clip.
+exports('Sample', function(clip, phase)
+    local track = trackOf(clip)
+    if not track then return nil end
+    local q, a = sample(track, phase)
+    return q[1], q[2], q[3], q[4], a.x, a.y, a.z
+end)
 exports('MatchFrame', MatchFrame)
 exports('DeepestFrame', DeepestFrame)
 exports('FlickPatterns', function() return Skate3FlickPatterns end)

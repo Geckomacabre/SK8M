@@ -11,7 +11,7 @@ description = "Skate 3's engine (the skate-host bridge) behind a small C interfa
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-skate-host = { path = "../upstream/2010-rust-rewrite-mashup/skate/crates/skate-host" }
+skate-host = { path = "../overlay/skate/crates/skate-host" }
 
 # skate-host is written beside bevy but uses only its math types, Transform, log macros and the Resource derive.
 [patch.crates-io]

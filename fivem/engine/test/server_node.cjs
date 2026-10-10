@@ -1,16 +1,20 @@
 // The server's side of the engine (fivem/skateboard/engine_server.js) with FiveM stood in for: the events a
 // player's game sends are fired by hand, and what the server sends back is collected.
 // usage: node server_node.cjs <engine_server.js> <skate3_assets folder>
+const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const [serverFile, assets] = process.argv.slice(2);
+const own = fs.mkdtempSync(path.join(os.tmpdir(), 'sk8m-server-'));     // the resource's own folder, for its status file
 
 const handlers = {}, sent = [];
 global.on = (name, fn) => { (handlers[name] = handlers[name] || []).push(fn); };
 global.onNet = global.on;
 global.emitNet = (name, player, ...args) => sent.push({ name, player, args, at: performance.now() });
-global.GetResourcePath = (name) => (name === 'skate3_assets' ? assets : '');
+global.GetResourcePath = (name) => (name === 'skate3_assets' ? assets : own);
 global.GetCurrentResourceName = () => 'skateboard';
 global.GetConvarInt = (name, fallback) => (name === 'skateboard_engine_riders' ? 2 : fallback);
+global.GetConvar = (name, fallback) => fallback;
 function fire(name, player, ...args) {
   global.source = player;
   for (const fn of handlers[name] || []) fn(...args);
@@ -31,7 +35,10 @@ const report = (label, good) => { ok = ok && good; quiet((good ? 'OK  ' : 'BAD '
   report(`the resource's start loads the engine (${load.toFixed(1)} s of the server's time): "${lines[lines.length - 1]}"`,
     lines.some((l) => l.includes('loaded in')));
   fire('skateboard:engAsk', 1);
-  report('a player who asks is told the server has the engine', of('skateboard:engHave', 1).some((m) => m.args[0] === true));
+  report('a player who asks is told the server has the engine', of('skateboard:engHave', 1).some((m) => m.args[0] === true && m.args[1] === ''));
+  const status = fs.readFileSync(path.join(own, 'engine_status.txt'), 'utf8');
+  report('what happened is in engine_status.txt in the resource\'s folder (' + status.trim().split('\n').length + ' lines, Node ' + process.version + ')',
+    status.includes('starting on Node') && status.includes('loaded in'));
 
   // a rider: standing, then three pushes sent as the game sends them (two samples of the pad an event)
   t = performance.now();
@@ -54,6 +61,15 @@ const report = (label, good) => { ok = ok && good; quiet((good ? 'OK  ' : 'BAD '
     poses.length / span > 50 && speed > 7.5 && last[1] === 'PhysicsGround' && last[2].length === 16 && last[4].length === 13);
   // heading pi: Skate +z turned half round, so it rolls towards -z
   report('started facing the other way it rolls the other way (Skate -z)', last[2][14] < -5);
+  // the clip the rider is shown with: named with every answer, one of the converted ones, and not a new one every tick
+  const index = fs.readFileSync(path.join(assets, 'clip_index.lua'), 'utf8');
+  const names = [...new Set(poses.map((m) => m.args[5]))];
+  let changes = 0;
+  for (let i = 1; i < poses.length; i++) if (poses[i].args[5] !== poses[i - 1].args[5]) changes++;
+  report(`each answer names the clip the rider plays and the time in it: ${names.join(', ')} (${changes} changes in ${poses.length} answers)`,
+    names.every((n) => typeof n === 'string' && n !== '' && index.includes(`["${n}"]`)) &&
+    names.some((n) => n.startsWith('r_push')) && names.includes('r_idle_hcom_000') && changes < 20 &&
+    poses.every((m) => typeof m.args[6] === 'number' && m.args[6] >= 0 && m.args[7] === false));
 
   // a second rider at the same time, and the ground handed to the first: a slope falling to -z, where it is going
   t = performance.now();

@@ -9,9 +9,14 @@
 --
 -- With Config.Engine on and a server that has the engine, getting on the board (the item, F6, D-pad right) starts
 -- it and the same again ends it. /sk8engine does the same by hand, /sk8enginestate says what it is doing.
---   * the ground is what rays find under a grid round the board, half a metre apart: slopes, kerbs and ramps are
---     there, a wall is a steep ramp, and there is nothing to grind on yet,
---   * the rider is shown in the riding stance only (which clips the engine plays is not read out yet),
+--   * the ground is the map itself where the server has it baked (GTA's own collision with the grind rails
+--     found in it: kerbs are kerbs, ledges and handrails grind). Where it has not, or where this game finds the
+--     ground somewhere else than the baked map has it (a map the server adds), it is what rays find under a grid
+--     round the board, half a metre apart: slopes and ramps are there, a kerb is a ramp, nothing grinds,
+--   * props, vehicles and people are not in either: the board goes through them,
+--   * the rider plays the ONE clip that has most of the engine's pose, at the engine's time in it, and is stood
+--     where that clip has the board under the feet. The engine's own pose is a blend of several clips with the
+--     feet and hands placed on top; a script cannot set a ped's bones, so that exact pose cannot be shown,
 --   * the board is seen by you alone,
 --   * what you do reaches the engine a few hundredths of a second later, plus your ping.
 -- Skate 3's space is metres with y up: Skate (x, y, z) = GTA (x, -z, y) from the place it was started at.
@@ -36,7 +41,8 @@ local RAYS_A_FRAME = 120
 local GROUND_FLAGS = 1 | 16                -- the map and objects (not vehicles, not peds)
 local NO_GROUND = -1000.0                  -- sent for a sample with nothing under it
 
-local have                      -- does the server have the engine? (nil until it has answered)
+local have, haveWhy             -- does the server have the engine? (nil until it has answered), and if not, why
+local toldAt = -100000          -- when the player was last told which ride they are on
 local on = false
 local origin, startHeading      -- GTA place and heading the engine's (0, 0, 0) and heading 0 stand for
 local board, boardGeom, dressed
@@ -48,9 +54,19 @@ local heights, heightAt         -- cell -> ground height there (false = none), a
 local sent                      -- the window the engine has: { x, y, at }
 local grounds = 0
 local samples, owed, lastSent   -- pad samples waiting to go, time not yet sampled, the last sample that went
+local anim                      -- the clip the ped plays: { clip, dict, length }, and the clips there were none of
+local baked                     -- is the rider on the server's baked map? (false: on the ground the rays find)
+local checkedAt, wrongSince     -- when the baked map was last held against the game's ground, and since when it is off
 
 local function say(text)
     print(('[skateboard] engine: %s'):format(text))
+end
+
+-- A line above the map, so that nobody has to guess which ride they are on.
+local function tell(text)
+    BeginTextCommandThefeedPost('STRING')
+    AddTextComponentSubstringPlayerName(text)
+    EndTextCommandThefeedPostTicker(false, false)
 end
 
 -- A Skate-space direction as a GTA one.
@@ -209,14 +225,88 @@ local function ground(ped, px, py, pz, vx, vy)
     grounds = grounds + 1
 end
 
+-- The rider's clip: the one the engine plays most of, held at the engine's time in it (the clip does not run by
+-- itself: its time is set every frame). Returns the clip's board against the ped at that time (see the Sample
+-- export of skate3_assets), or nil when the clip is not among the converted ones.
+local function animate(ped, age)
+    local clip = pose.clip
+    if type(clip) ~= 'string' or clip == '' then clip = nil end
+    if clip and pose.mirrored then clip = clip .. '_mir' end
+    if clip and clip ~= anim.clip and not anim.none[clip] then
+        local ok, dict = pcall(function() return exports.skate3_assets:ClipDict(clip) end)
+        if not (ok and dict) then
+            anim.none[clip] = true
+            say('no converted clip ' .. clip .. ' (the last one stays)')
+        elseif HasAnimDictLoaded(dict) then
+            anim.clip, anim.dict, anim.lost = clip, dict, nil
+            anim.length = math.max(exports.skate3_assets:ClipLength(clip) or 0.0, 0.01)
+            anim.phase = math.min(math.max(pose.t / anim.length, 0.0), 0.99)
+            TaskPlayAnim(ped, dict, clip, 6.0, -6.0, -1, 2, anim.phase, false, false, false)
+            anim.clips = anim.clips + 1
+        else
+            RequestAnimDict(dict)   -- (the last clip stays until it is there)
+        end
+    end
+    if not anim.dict then return nil end
+    if anim.clip == clip then anim.phase = math.min(math.max((pose.t + age) / anim.length, 0.0), 0.999) end
+    if IsEntityPlayingAnim(ped, anim.dict, anim.clip, 3) then
+        anim.lost = nil
+        SetEntityAnimSpeed(ped, anim.dict, anim.clip, 0.0)
+        SetEntityAnimCurrentTime(ped, anim.dict, anim.clip, anim.phase)
+    else
+        -- (a new task takes a frame or two to start; after longer than that the game has dropped it: once more)
+        local now = GetGameTimer()
+        anim.lost = anim.lost or now
+        if now - anim.lost > 200 then
+            TaskPlayAnim(ped, anim.dict, anim.clip, 8.0, -8.0, -1, 2, math.min(anim.phase, 0.99), false, false, false)
+            anim.lost, anim.replays = nil, anim.replays + 1
+        end
+    end
+    -- (a skate3_assets from before this resource has no Sample: the rider is then stood over the board as before)
+    local ok, qx, qy, qz, qw, ax, ay, az = pcall(function() return exports.skate3_assets:Sample(anim.clip, anim.phase) end)
+    if ok and qx then return qx, qy, qz, qw, ax, ay, az end
+    if not anim.old then
+        anim.old = true
+        say('skate3_assets cannot say where a clip has the board (an older build is running: ensure skate3_assets)')
+    end
+    return nil
+end
+
+-- On the baked map: is the game's ground where the engine has the board? One ray under the board four times a
+-- second, at the map alone (the baked map has no props either). Rolling, the board's root is ROOT_ABOVE_GROUND over
+-- the ground; in the air only a board well under the ground is wrong. Off for more than half a second (a map this
+-- server adds, a place only Online changes): the server is told, and the ground is the rays' from here on.
+local function agree(ped, px, py, pz)
+    local now = GetGameTimer()
+    if now - checkedAt < 250 then return end
+    checkedAt = now
+    local ray = StartExpensiveSynchronousShapeTestLosProbe(px, py, pz + 1.5, px, py, pz - 8.0, 1, ped, 7)
+    local _, hit, at = GetShapeTestResult(ray)
+    local gap = hit == 1 and (pz - ROOT_ABOVE_GROUND - at.z) or nil
+    local off = gap ~= nil and (gap < -1.0 or (pose.s == 'PhysicsGround' and math.abs(gap) > 0.4))
+    if not off then
+        wrongSince = nil
+        return
+    end
+    wrongSince = wrongSince or now
+    if now - wrongSince < 600 then return end
+    baked, sent = false, nil
+    local nx, ny = gta(pose.r[9], pose.r[10], pose.r[11])
+    say(('the baked map is %.2f m off this game\'s ground at %.1f %.1f %.1f: the ground is what rays find from here on'):format(
+        gap, px, py, at.z))
+    TriggerServerEvent('skateboard:engRays', px - origin.x, at.z - origin.z, -(py - origin.y),
+        math.rad(heading(nx, ny) + 180.0), gap)
+end
+
 -- Put the board, the rider and the camera where the engine's last answer has them.
 local function show(ped)
     local r, v, c = pose.r, pose.v, pose.c
-    -- (the answer is a tick or two old when it is drawn: carried on by the board's speed for that long)
-    local age = math.min(math.max((GetGameTimer() - poseAt) / 1000.0, 0.0), 0.05)
+    -- (the answer is a tick or two old when it is drawn: carried on by the board's speed for that long; and for up to
+    -- 0.15 s when none comes, which is the server handing the engine a new piece of the baked map)
+    local age = math.min(math.max((GetGameTimer() - poseAt) / 1000.0, 0.0), 0.15)
     local px, py, pz = gta(r[13] + v[1] * age, r[14] + v[2] * age, r[15] + v[3] * age)
     px, py, pz = origin.x + px, origin.y + py, origin.z + pz
-    local rx, ry, rz = gta(r[1], r[2], r[3])       -- the board's right,
+    local rx, ry, rz = gta(r[1], r[2], r[3])       -- the board's left (Skate's x),
     local ux, uy, uz = gta(r[5], r[6], r[7])       -- up,
     local nx, ny, nz = gta(r[9], r[10], r[11])     -- and nose
     local drop = ROOT_ABOVE_GROUND + boardGeom.bottom
@@ -226,11 +316,25 @@ local function show(ped)
     else
         SetEntityQuaternion(board, quaternion(-rx, -ry, -rz, nx, ny, nz, ux, uy, uz))
     end
-    -- the rider: over the board, upright, facing the way the board goes
+    -- the rider: playing the engine's clip, upright, turned and stood so that the clip's board is the engine's
+    -- (in the clip the board's tail end is tx, ty from the ped and the deck's middle is ax, ay, az from it)
     local vx, vy = gta(v[1], v[2], v[3])
-    if vx * vx + vy * vy > 0.64 then riderHeading = heading(vx, vy) end
-    SetEntityCoordsNoOffset(ped, px + ux * DECK_ABOVE_ROOT, py + uy * DECK_ABOVE_ROOT,
-        pz + uz * DECK_ABOVE_ROOT + Config.RideHeight, true, false, false)
+    local dx, dy, dz = px + ux * DECK_ABOVE_ROOT, py + uy * DECK_ABOVE_ROOT, pz + uz * DECK_ABOVE_ROOT
+    local qx, qy, qz, qw, ax, ay, az = animate(ped, age)
+    if qx then
+        local tx, ty = 2.0 * (qx * qy - qw * qz), 1.0 - 2.0 * (qx * qx + qz * qz)   -- (the clip's board's +y)
+        if tx * tx + ty * ty > 0.09 and nx * nx + ny * ny > 0.09 then
+            riderHeading = (heading(-nx, -ny) - heading(tx, ty)) % 360.0
+        end
+        local h = math.rad(riderHeading)
+        local ch, sh = math.cos(h), math.sin(h)
+        -- (keepTasks, keepIK, no warp: without keepTasks the game drops the clip every time the ped is moved)
+        SetEntityCoordsNoOffset(ped, dx - (ax * ch - ay * sh), dy - (ax * sh + ay * ch), dz - az, true, true, false)
+    else
+        -- (no clip for it: over the board, facing the way it goes)
+        if vx * vx + vy * vy > 0.64 then riderHeading = heading(vx, vy) end
+        SetEntityCoordsNoOffset(ped, dx, dy, dz + Config.RideHeight, true, true, false)
+    end
     SetEntityHeading(ped, riderHeading)
     -- the camera: the engine's own
     if c[13] > 1.0 then
@@ -299,11 +403,13 @@ function Engine.start()
     on, pose, poses, firstPose = true, nil, 0, nil
     heights, heightAt, sent, grounds = {}, {}, nil, 0
     samples, owed, lastSent = {}, 0.0, { 0, 0, 0, 0, 0, 0, 0 }
+    anim = { none = {}, clips = 0, replays = 0 }
+    baked, checkedAt, wrongSince = false, 0, nil
     FreezeEntityPosition(ped, true)
     SetEntityCollision(ped, false, false)
-    stance(ped)
+    stance(ped)   -- (until the engine's first answer says which clip)
     -- (the engine faces Skate +z at heading 0, which is GTA south: half a turn from GTA's heading 0)
-    TriggerServerEvent('skateboard:engStart', math.rad(startHeading + 180.0))
+    TriggerServerEvent('skateboard:engStart', math.rad(startHeading + 180.0), origin.x, origin.y, origin.z)
     say(('starting at %.1f %.1f %.1f, heading %.0f'):format(origin.x, origin.y, origin.z, startHeading))
     CreateThread(function()
         local last = GetGameTimer()
@@ -323,7 +429,7 @@ function Engine.start()
                     Engine.stop('the board fell out of the world')
                     break
                 end
-                ground(ped, px, py, pz, vx, vy)
+                if baked then agree(ped, px, py, pz) else ground(ped, px, py, pz, vx, vy) end
             else
                 ground(ped, origin.x, origin.y, origin.z + ROOT_ABOVE_GROUND, 0.0, 0.0)
             end
@@ -335,7 +441,16 @@ end
 -- Does getting on / off the board mean the engine? busy = the resource's own ride has the rider.
 function Engine.rides(busy)
     if on then return true end
-    return Config.Engine ~= false and not busy and have == true
+    if Config.Engine == false or busy then return false end
+    if have == true then return true end
+    -- (switched on, and the server has no engine: said once a minute, on the screen and in the console)
+    if GetGameTimer() - toldAt > 60000 then
+        toldAt = GetGameTimer()
+        local why = have == nil and 'the server has not answered yet' or (haveWhy ~= '' and haveWhy or 'the server has none')
+        say('not used, this is the old ride: ' .. why)
+        tell('~y~Skate 3 engine: OFF~s~ (old ride). ' .. why)
+    end
+    return false
 end
 
 function Engine.toggle()
@@ -346,19 +461,25 @@ function Engine.toggle()
     end
 end
 
-RegisterNetEvent('skateboard:engHave', function(yes) have = yes == true end)
-
-RegisterNetEvent('skateboard:engReady', function(period, ms)
-    say(('the server\'s engine has you: ready in %d ms, one tick = %.4f s'):format(ms or 0, period or 0.0))
+RegisterNetEvent('skateboard:engHave', function(yes, why)
+    have, haveWhy = yes == true, tostring(why or '')
 end)
 
-RegisterNetEvent('skateboard:engPose', function(n, state, r, v, c)
+RegisterNetEvent('skateboard:engReady', function(period, ms, onMap)
+    baked = onMap == true
+    say(('the server\'s engine has you: ready in %d ms, one tick = %.4f s, on %s'):format(ms or 0, period or 0.0,
+        baked and 'the baked map' or 'the ground this game finds with rays'))
+end)
+
+RegisterNetEvent('skateboard:engPose', function(n, state, r, v, c, clip, time, mirrored)
     if not on or type(r) ~= 'table' or type(v) ~= 'table' or type(c) ~= 'table' then return end
-    pose, poseAt = { n = n, s = state, r = r, v = v, c = c }, GetGameTimer()
+    pose, poseAt = { n = n, s = state, r = r, v = v, c = c, clip = clip, t = tonumber(time) or 0.0,
+                     mirrored = mirrored == true }, GetGameTimer()
     poses = poses + 1
     if not firstPose then
         firstPose = poseAt
         say(('riding: %s'):format(tostring(state)))
+        tell('~g~Skate 3 engine: ON~s~')
     end
 end)
 
@@ -367,6 +488,7 @@ RegisterNetEvent('skateboard:engError', function(text)
     local riding = firstPose ~= nil
     say('FAILED: ' .. tostring(text))
     Engine.stop('the engine failed')
+    tell('~r~Skate 3 engine failed~s~: ' .. tostring(text) .. (riding and '' or '. Old ride instead.'))
     -- (every rider of the engine taken, or it would not start: the resource's own ride instead)
     if not riding then SkateboardGetOn() end
 end)
@@ -392,9 +514,10 @@ RegisterCommand('sk8enginestate', function()
     if not on then return say(have and 'not running; the server has the engine' or 'not running; the server has no engine') end
     if not pose then return say('running, no answer from the engine yet') end
     local seconds = math.max((GetGameTimer() - firstPose) / 1000.0, 0.001)
-    say(('%s; board %.2f %.2f %.2f (Skate space), speed %.2f m/s; %d answers, %.0f a second; ground handed over %d times'):format(
-        tostring(pose.s), pose.r[13], pose.r[14], pose.r[15],
-        math.sqrt(pose.v[1] ^ 2 + pose.v[2] ^ 2 + pose.v[3] ^ 2), poses, poses / seconds, grounds))
+    say(('%s on %s, clip %s at %.2f s; board %.2f %.2f %.2f (Skate space), speed %.2f m/s; %d answers, %.0f a second; ground handed over %d times; %d clips started, %d of them twice'):format(
+        tostring(pose.s), baked and 'the baked map' or 'the rays\' ground', tostring(pose.clip), pose.t or 0.0, pose.r[13], pose.r[14], pose.r[15],
+        math.sqrt(pose.v[1] ^ 2 + pose.v[2] ^ 2 + pose.v[3] ^ 2), poses, poses / seconds, grounds,
+        anim.clips, anim.replays))
 end, false)
 
 AddEventHandler('onResourceStop', function(name)

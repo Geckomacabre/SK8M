@@ -65,6 +65,13 @@ fitted about the vertical, the two-bone limb solve, hands placed while in
 contact), rewritten in Python for baked clips. fivem/skateboard/client.lua
 sorts GTA's ground materials after rust/skatev-runtime/src/materials.rs.
 
+fivem/engine builds the Skate engine with SK8V's patches (patches/skate) and
+bakes GTA's collision for it with SK8V's tools (rust/world-cache,
+rust/gta-archives). fivem/engine/bake builds in SK8V's rails.rs, curbs.rs,
+grid.rs, plies.rs and materials.rs (rust/skatev-runtime/src) and its svwc
+crate unchanged, and follows build_area_tagged of SK8V's world.rs;
+spatial_order in fivem/engine/runtime/src/lib.rs is from the same file.
+
 Skate 3 vault field names (fivem/skate3-sp/tools/vlt/names.json)
   Most names come from the key list published by the Skate-Modding-Team.
   https://github.com/Skate-Modding-Team/VaultTest

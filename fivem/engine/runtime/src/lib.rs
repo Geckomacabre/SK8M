@@ -8,6 +8,7 @@
 //! Memory: the host asks for a block with `sk8m_alloc`, writes into it, and gives it back with `sk8m_free`.
 //! Every function that can fail returns 0 for success; `sk8m_error` then has nothing, otherwise the reason.
 use skate_host::bridge::{Controls, Session};
+
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::Path;
@@ -150,6 +151,58 @@ pub unsafe extern "C" fn sk8m_world(id: u32, tris: *const f32, tri_count: usize,
     })
 }
 
+/// Replaces the world the rider is in with a piece of the baked map (tools/bake_collision.py): `count` triangles
+/// as 9 floats each with a surface tag each, and rails as `sk8m_world` takes them, all in GTA's axes (z up) from
+/// the place the rider's Skate space starts at. The tags are the engine's packed surfaces, with its no-grind mark
+/// on ramp toes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn sk8m_area(id: u32, tris: *const f32, tags: *const u32, count: usize, rail_floats: *const f32, rail_len: usize) -> i32 {
+    // (GTA's x, y, z is Skate's x, z, -y: a turn, so a triangle keeps the side it faces)
+    let turn = |p: [f32; 3]| [p[0], p[2], -p[1]];
+    let tags = if count == 0 { &[][..] } else { unsafe { std::slice::from_raw_parts(tags, count) } };
+    let mut world: Vec<([[f32; 3]; 3], u32)> =
+        unsafe { triangles(tris, count) }.into_iter().map(|t| t.map(turn)).zip(tags.iter().copied()).collect();
+    spatial_order(&mut world);
+    let rails: Vec<Vec<[f32; 3]>> = unsafe { rails(rail_floats, rail_len) }.into_iter().map(|r| r.into_iter().map(turn).collect()).collect();
+    let (tris, tags): (Vec<_>, Vec<_>) = world.into_iter().unzip();
+    ENGINE.with_borrow_mut(|e| {
+        let result = e.riders.get_mut(&id).map(|r| {
+            r.session.collision_builder().build_tagged(tris, tags, rails).and_then(|world| r.session.install_collision(world))
+        });
+        done(e, result)
+    })
+}
+
+/// Sorts triangles along a Z-order curve of their middles (SK8V's `spatial_order`, rust/skatev-runtime/src/
+/// world.rs): the engine groups triangles 64 at a time in the order given, and groups that hold neighbours keep
+/// its searches short. Tiles of a baked map arrive tile by tile.
+fn spatial_order(tris: &mut [([[f32; 3]; 3], u32)]) {
+    let middle = |t: &[[f32; 3]; 3]| [0, 1, 2].map(|i| (t[0][i] + t[1][i] + t[2][i]) / 3.0);
+    let (mut lo, mut hi) = ([f32::MAX; 3], [f32::MIN; 3]);
+    for (t, _) in tris.iter() {
+        let c = middle(t);
+        for i in 0..3 {
+            lo[i] = lo[i].min(c[i]);
+            hi[i] = hi[i].max(c[i]);
+        }
+    }
+    // 21 bits per axis (63-bit key).
+    let spread = |v: u64| {
+        let mut x = v & 0x1f_ffff;
+        x = (x | x << 32) & 0x1f_0000_0000_ffff;
+        x = (x | x << 16) & 0x1f_0000_ff00_00ff;
+        x = (x | x << 8) & 0x100f_00f0_0f00_f00f;
+        x = (x | x << 4) & 0x10c3_0c30_c30c_30c3;
+        x = (x | x << 2) & 0x1249_2492_4924_9249;
+        x
+    };
+    tris.sort_by_cached_key(|(t, _)| {
+        let c = middle(t);
+        let k = [0, 1, 2].map(|i| ((c[i] - lo[i]) / (hi[i] - lo[i]).max(1e-3) * 2_097_151.0) as u64);
+        spread(k[0]) | spread(k[1]) << 1 | spread(k[2]) << 2
+    });
+}
+
 /// One engine tick with the pad as XInput reports it: button bits, triggers 0..255, sticks -32768..32767.
 #[unsafe(no_mangle)]
 pub extern "C" fn sk8m_tick(id: u32, buttons: u32, left_trigger: u32, right_trigger: u32, lx: i32, ly: i32, rx: i32, ry: i32) -> i32 {
@@ -198,6 +251,23 @@ pub unsafe extern "C" fn sk8m_pose(id: u32, out: *mut f32, cap: usize) -> u32 {
         }
         rider.state = pose.state;
         pose.bones.len() as u32
+    })
+}
+
+/// The clips the rider's pose of this tick is blended from, the one with the largest share first, one per line:
+/// name, time in the clip in seconds, share of the pose (0..1), 1 if it is played mirrored; tabs between. For a
+/// host that cannot set bones and plays the clips itself. Returns the bytes written.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn sk8m_clips(id: u32, out: *mut u8, cap: usize) -> usize {
+    ENGINE.with_borrow(|e| {
+        let Some(rider) = e.riders.get(&id) else { return 0 };
+        let mut clips = rider.session.clips();
+        clips.sort_by(|a, b| b.2.total_cmp(&a.2));
+        let text: String = clips
+            .iter()
+            .map(|(name, time, share, mirrored)| format!("{name}\t{time:.4}\t{share:.3}\t{}\n", u8::from(*mirrored)))
+            .collect();
+        copy_out(&text, out, cap)
     })
 }
 
